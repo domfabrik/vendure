@@ -97,27 +97,30 @@ jobs:
           docker push "${{ steps.vars.outputs.image_repo }}:${{ steps.vars.outputs.image_tag }}"
           docker push "${{ steps.vars.outputs.image_repo }}:${{ steps.vars.outputs.latest_tag }}"
 
-      - name: Configure SSH
-        shell: bash
-        env:
-          RUNNER_USER: ${{ vars.RUNNER_USER }}
-          SERVER_HOST: ${{ steps.vars.outputs.server_host }}
-        run: |
-          set -euo pipefail
-          mkdir -p ~/.ssh
-          printf '%s' "${{ secrets.RUNNER_USER_KEY }}" > ~/.ssh/id_ed25519
-          chmod 600 ~/.ssh/id_ed25519
-          ssh-keyscan -H "${SERVER_HOST}" >> ~/.ssh/known_hosts
-          chmod 644 ~/.ssh/known_hosts
-
-      - name: Deploy backend
-        shell: bash
-        env:
-          RUNNER_USER: ${{ vars.RUNNER_USER }}
-          SERVER_HOST: ${{ steps.vars.outputs.server_host }}
-          DEPLOY_ENV_FILE: ${{ steps.vars.outputs.deploy_env_file }}
-          IMAGE_TAG: ${{ steps.vars.outputs.image_tag }}
-        run: |
-          set -euo pipefail
-          ssh -i ~/.ssh/id_ed25519 "${RUNNER_USER}@${SERVER_HOST}" \
-            "/opt/fabric/infra/scripts/deploy-vendure.sh '${DEPLOY_ENV_FILE}' '${IMAGE_TAG}'"
+      # Manual server rollout is temporarily preferred while the deploy scripts
+      # are validated directly on the target VM. Re-enable SSH deploy after the
+      # server-side path is proven stable.
+      # - name: Configure SSH
+      #   shell: bash
+      #   env:
+      #     RUNNER_USER: ${{ vars.RUNNER_USER }}
+      #     SERVER_HOST: ${{ steps.vars.outputs.server_host }}
+      #   run: |
+      #     set -euo pipefail
+      #     mkdir -p ~/.ssh
+      #     printf '%s' "${{ secrets.RUNNER_USER_KEY }}" > ~/.ssh/id_ed25519
+      #     chmod 600 ~/.ssh/id_ed25519
+      #     ssh-keyscan -H "${SERVER_HOST}" >> ~/.ssh/known_hosts
+      #     chmod 644 ~/.ssh/known_hosts
+      #
+      # - name: Deploy backend
+      #   shell: bash
+      #   env:
+      #     RUNNER_USER: ${{ vars.RUNNER_USER }}
+      #     SERVER_HOST: ${{ steps.vars.outputs.server_host }}
+      #     DEPLOY_ENV_FILE: ${{ steps.vars.outputs.deploy_env_file }}
+      #     IMAGE_TAG: ${{ steps.vars.outputs.image_tag }}
+      #   run: |
+      #     set -euo pipefail
+      #     ssh -i ~/.ssh/id_ed25519 "${RUNNER_USER}@${SERVER_HOST}" \
+      #       "/opt/fabric/infra/scripts/deploy-vendure.sh '${DEPLOY_ENV_FILE}' '${IMAGE_TAG}'"
