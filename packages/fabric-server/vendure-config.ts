@@ -25,6 +25,7 @@ const storefrontOrigins = (process.env.STOREFRONT_ORIGIN ?? '')
 const logLevel = process.env.LOG_LEVEL === 'debug' ? LogLevel.Debug : LogLevel.Info;
 const assetUploadDir = process.env.VENDURE_ASSET_UPLOAD_DIR ?? path.join(process.cwd(), 'var/assets');
 const superadminCredentials = getSuperadminCredentials();
+const migrationExtension = path.extname(__filename) === '.js' ? 'js' : 'ts';
 
 export const fabricServerConfig: VendureConfig = {
     apiOptions: {
@@ -58,7 +59,7 @@ export const fabricServerConfig: VendureConfig = {
         database: process.env.DB_NAME ?? 'vendure',
         schema: process.env.DB_SCHEMA ?? 'public',
         synchronize: process.env.VENDURE_DB_SYNCHRONIZE === 'true',
-        migrations: [path.join(__dirname, '../dev-server/migrations/*.ts')],
+        migrations: [path.join(__dirname, `../dev-server/migrations/*.${migrationExtension}`)],
     },
     paymentOptions: {
         paymentMethodHandlers: [dummyPaymentHandler],

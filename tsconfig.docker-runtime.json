@@ -1,0 +1,18 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "module": "commonjs",
+    "moduleResolution": "node",
+    "target": "es2021",
+    "rootDir": ".",
+    "outDir": ".docker-runtime",
+    "declaration": false,
+    "sourceMap": false,
+    "incremental": false
+  },
+  "include": [
+    "packages/fabric-server/**/*.ts",
+    "packages/core/mock-data/data-sources/initial-data.ts",
+    "packages/dev-server/migrations/**/*.ts"
+  ]
+}
