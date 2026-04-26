@@ -1,0 +1,12 @@
+.git
+.github
+.vscode
+.claude
+.cursor
+docs
+e2e-common
+license
+node_modules
+packages/*/node_modules
+packages/*/dist
+packages/*/lib
