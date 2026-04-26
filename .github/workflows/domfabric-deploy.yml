@@ -1,0 +1,123 @@
+name: Domfabric Backend Deploy
+
+on:
+  push:
+    branches:
+      - master
+      - test
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Deployment environment
+        required: true
+        type: choice
+        options:
+          - prod
+          - test
+
+permissions:
+  contents: read
+
+jobs:
+  build_and_deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Resolve deployment variables
+        id: vars
+        shell: bash
+        env:
+          YC_REGISTRY: ${{ vars.YC_REGISTRY }}
+          VENDURE_IMAGE_REPOSITORY: ${{ vars.VENDURE_IMAGE_REPOSITORY }}
+          PROD_SERVER_HOST: ${{ vars.PROD_SERVER_HOST }}
+          TEST_SERVER_HOST: ${{ vars.TEST_SERVER_HOST }}
+          PROD_DEPLOY_ENV_FILE: ${{ vars.PROD_DEPLOY_ENV_FILE }}
+          TEST_DEPLOY_ENV_FILE: ${{ vars.TEST_DEPLOY_ENV_FILE }}
+        run: |
+          set -euo pipefail
+
+          if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
+            deploy_env="${{ inputs.environment }}"
+          elif [[ "${GITHUB_REF_NAME}" == "master" ]]; then
+            deploy_env="prod"
+          else
+            deploy_env="test"
+          fi
+
+          if [[ "${deploy_env}" == "prod" ]]; then
+            server_host="${PROD_SERVER_HOST}"
+            deploy_env_file="${PROD_DEPLOY_ENV_FILE}"
+            latest_tag="prod-latest"
+          else
+            server_host="${TEST_SERVER_HOST}"
+            deploy_env_file="${TEST_DEPLOY_ENV_FILE}"
+            latest_tag="test-latest"
+          fi
+
+          version="$(node -p "require('./package.json').version")"
+          build_date="$(date +'%Y-%m-%d')"
+          short_sha="$(git rev-parse --short HEAD)"
+          image_tag="${deploy_env}-v${version}-${build_date}-${short_sha}"
+          image_repo="${YC_REGISTRY}/${VENDURE_IMAGE_REPOSITORY}"
+
+          echo "deploy_env=${deploy_env}" >> "$GITHUB_OUTPUT"
+          echo "server_host=${server_host}" >> "$GITHUB_OUTPUT"
+          echo "deploy_env_file=${deploy_env_file}" >> "$GITHUB_OUTPUT"
+          echo "latest_tag=${latest_tag}" >> "$GITHUB_OUTPUT"
+          echo "image_tag=${image_tag}" >> "$GITHUB_OUTPUT"
+          echo "image_repo=${image_repo}" >> "$GITHUB_OUTPUT"
+
+      - name: Login to Yandex Container Registry
+        uses: yc-actions/yc-cr-login@v3
+        with:
+          yc-sa-json-credentials: ${{ secrets.YC_SA_JSON_CREDENTIALS }}
+
+      - name: Build backend image
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker build \
+            --pull \
+            -t "${{ steps.vars.outputs.image_repo }}:${{ steps.vars.outputs.image_tag }}" \
+            -t "${{ steps.vars.outputs.image_repo }}:${{ steps.vars.outputs.latest_tag }}" \
+            .
+
+      - name: Push backend image
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker push "${{ steps.vars.outputs.image_repo }}:${{ steps.vars.outputs.image_tag }}"
+          docker push "${{ steps.vars.outputs.image_repo }}:${{ steps.vars.outputs.latest_tag }}"
+
+      - name: Configure SSH
+        shell: bash
+        env:
+          RUNNER_USER: ${{ vars.RUNNER_USER }}
+          SERVER_HOST: ${{ steps.vars.outputs.server_host }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh
+          printf '%s' "${{ secrets.RUNNER_USER_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H "${SERVER_HOST}" >> ~/.ssh/known_hosts
+          chmod 644 ~/.ssh/known_hosts
+
+      - name: Deploy backend
+        shell: bash
+        env:
+          RUNNER_USER: ${{ vars.RUNNER_USER }}
+          SERVER_HOST: ${{ steps.vars.outputs.server_host }}
+          DEPLOY_ENV_FILE: ${{ steps.vars.outputs.deploy_env_file }}
+          IMAGE_TAG: ${{ steps.vars.outputs.image_tag }}
+        run: |
+          set -euo pipefail
+          ssh -i ~/.ssh/id_ed25519 "${RUNNER_USER}@${SERVER_HOST}" \
+            "/opt/fabric/infra/scripts/deploy-vendure.sh '${DEPLOY_ENV_FILE}' '${IMAGE_TAG}'"
