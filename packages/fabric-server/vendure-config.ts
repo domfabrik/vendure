@@ -1,4 +1,5 @@
 import { AssetServerPlugin } from '@vendure/asset-server-plugin';
+import { DashboardPlugin } from '@vendure/dashboard/plugin';
 import {
     DefaultJobQueuePlugin,
     DefaultLogger,
@@ -24,6 +25,7 @@ const storefrontOrigins = (process.env.STOREFRONT_ORIGIN ?? '')
 
 const logLevel = process.env.LOG_LEVEL === 'debug' ? LogLevel.Debug : LogLevel.Info;
 const assetUploadDir = process.env.VENDURE_ASSET_UPLOAD_DIR ?? path.join(process.cwd(), 'var/assets');
+const dashboardAppDir = path.join(process.cwd(), 'packages/fabric-server/dashboard/dist');
 const superadminCredentials = getSuperadminCredentials();
 const migrationExtension = path.extname(__filename) === '.js' ? 'js' : 'ts';
 
@@ -76,6 +78,10 @@ export const fabricServerConfig: VendureConfig = {
         AssetServerPlugin.init({
             route: 'assets',
             assetUploadDir,
+        }),
+        DashboardPlugin.init({
+            route: 'admin-dashboard',
+            appDir: dashboardAppDir,
         }),
         DefaultSearchPlugin.init({
             bufferUpdates: false,
