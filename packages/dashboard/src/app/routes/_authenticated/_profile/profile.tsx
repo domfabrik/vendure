@@ -19,7 +19,7 @@ import { useLocalFormat } from '@/vdb/hooks/use-local-format.js';
 import { Trans, useLingui } from '@lingui/react/macro';
 import { createFileRoute } from '@tanstack/react-router';
 import { toast } from 'sonner';
-import { activeAdministratorDocument, updateAdministratorDocument } from './profile.graphql.js';
+import { activeAdministratorDocument, updateActiveAdministratorDocument } from './profile.graphql.js';
 
 export const Route = createFileRoute('/_authenticated/_profile/profile')({
     component: ProfilePage,
@@ -42,10 +42,9 @@ function ProfilePage() {
     const { form, submitHandler, isPending, entity } = useDetailPage({
         queryDocument: activeAdministratorDocument,
         entityField: 'activeAdministrator',
-        updateDocument: updateAdministratorDocument,
+        updateDocument: updateActiveAdministratorDocument,
         setValuesForUpdate: entity => {
             return {
-                id: entity.id,
                 firstName: entity.firstName,
                 lastName: entity.lastName,
                 emailAddress: entity.emailAddress,
