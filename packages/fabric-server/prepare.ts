@@ -12,6 +12,7 @@ import path from 'path';
 
 import { initialData } from '../core/mock-data/data-sources/initial-data';
 
+import { bootstrapCatalogStructure } from './catalog/bootstrap-catalog-structure';
 import { fabricServerConfig } from './vendure-config';
 
 const productsCsvPath = path.join(__dirname, '../core/mock-data/data-sources/products.csv');
@@ -19,20 +20,32 @@ const productsCsvPath = path.join(__dirname, '../core/mock-data/data-sources/pro
 async function main() {
     await runMigrations(fabricServerConfig);
 
-    if (process.env.VENDURE_INITIALIZE_SAMPLE_DATA !== 'true') {
-        return;
-    }
-
+    let shouldPopulateSampleData = false;
     const app = await bootstrap(fabricServerConfig);
-    const connection = app.get(TransactionalConnection);
-    const productCount = await connection.rawConnection.getRepository(Product).count();
 
-    if (productCount > 0) {
+    try {
+        const summary = await bootstrapCatalogStructure(app);
+        console.log('[catalog-bootstrap] complete', JSON.stringify(summary));
+
+        if (process.env.VENDURE_INITIALIZE_SAMPLE_DATA !== 'true') {
+            return;
+        }
+
+        const connection = app.get(TransactionalConnection);
+        const productCount = await connection.rawConnection.getRepository(Product).count();
+
+        if (productCount > 0) {
+            return;
+        }
+
+        shouldPopulateSampleData = true;
+    } finally {
         await app.close();
-        return;
     }
 
-    await app.close();
+    if (!shouldPopulateSampleData) {
+        return;
+    }
 
     const populatedApp = await populate(
         () =>

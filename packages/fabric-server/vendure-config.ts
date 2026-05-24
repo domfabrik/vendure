@@ -12,6 +12,8 @@ import {
 import 'dotenv/config';
 import path from 'path';
 
+import { aridaCatalogCustomFields } from './catalog/custom-fields';
+
 class ExactStockDisplayStrategy {
     getStockLevel(_ctx: unknown, _productVariant: unknown, saleableStockLevel: number): string {
         return String(saleableStockLevel);
@@ -69,7 +71,7 @@ export const fabricServerConfig: VendureConfig = {
     catalogOptions: {
         stockDisplayStrategy: new ExactStockDisplayStrategy(),
     },
-    customFields: {},
+    customFields: aridaCatalogCustomFields,
     logger: new DefaultLogger({ level: logLevel }),
     importExportOptions: {
         importAssetsDir: path.join(__dirname, '../core/mock-data/assets'),
