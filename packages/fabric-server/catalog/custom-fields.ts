@@ -1,6 +1,22 @@
-import { CustomFields } from '@vendure/core';
+import { CustomFields, LanguageCode } from '@vendure/core';
 
 export const aridaCatalogCustomFields: CustomFields = {
+    Order: [
+        {
+            name: 'recipientFullName',
+            type: 'string',
+            nullable: true,
+            public: true,
+            label: [{ languageCode: LanguageCode.en, value: 'Recipient full name' }],
+        },
+        {
+            name: 'recipientPhoneNumber',
+            type: 'string',
+            nullable: true,
+            public: true,
+            label: [{ languageCode: LanguageCode.en, value: 'Recipient phone number' }],
+        },
+    ],
     Product: [
         { name: 'vendorName', type: 'string', nullable: true, public: true },
         { name: 'sourceUrl', type: 'string', length: 1024, nullable: true, public: false },
