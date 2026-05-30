@@ -1,8 +1,6 @@
 name: Close label-gated stale issues
 
 on:
-    schedule:
-        - cron: '0 2 * * *' # 02:00 UTC daily
     workflow_dispatch: # allow manual runs
 
 permissions:
