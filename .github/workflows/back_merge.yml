@@ -1,23 +1,6 @@
 name: Back-merge
 
 on:
-    push:
-        branches:
-            - master
-            # NOTE: The minor → major cascade is disabled because GitHub's
-            # "Automatically delete head branches" setting deletes the `minor`
-            # branch when a conflict-resolution PR (minor → major) is merged.
-            # There is no exclusion list for that setting, and rulesets' "Restrict
-            # deletions" rule does not reliably prevent it.
-            #
-            # Merge minor → major manually instead:
-            #   git checkout major && git pull && git merge origin/minor && git push
-            #
-            # See:
-            # - https://github.com/orgs/community/discussions/135012
-            # - https://github.com/orgs/community/discussions/152926
-            #
-            # - minor
     workflow_dispatch:
 
 concurrency:
@@ -98,16 +81,12 @@ jobs:
                     echo "result=conflict" >> "$GITHUB_OUTPUT"
                   fi
 
-            # App token is used for the push (not GITHUB_TOKEN) so that
-            # the push triggers downstream workflow runs for the cascade.
             - name: Push merge
               if: steps.merge.outputs.result == 'clean'
               env:
                   TARGET: ${{ needs.resolve-branches.outputs.target }}
               run: git push origin "$TARGET"
 
-            # GITHUB_TOKEN is sufficient for PR operations — they don't need
-            # to trigger downstream workflows, and it avoids burning App token quota.
             - name: Check for existing back-merge PR
               if: steps.merge.outputs.result == 'conflict'
               id: check-pr
