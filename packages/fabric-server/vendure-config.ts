@@ -14,6 +14,7 @@ import 'dotenv/config';
 import path from 'path';
 
 import { aridaCatalogCustomFields } from './catalog/custom-fields';
+import { CatalogPricingPlugin } from './catalog/catalog-pricing.plugin';
 import { OrderEmailHistoryPlugin } from './email/email-history.plugin';
 import { createNewOrderNotificationHandler } from './email/new-order-notification-handler';
 
@@ -93,6 +94,7 @@ export const fabricServerConfig: VendureConfig = {
             bufferUpdates: false,
             indexStockStatus: false,
         }),
+        CatalogPricingPlugin,
         DefaultJobQueuePlugin.init({}),
         OrderEmailHistoryPlugin,
         ...getEmailPlugins(),
