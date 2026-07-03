@@ -1,8 +1,6 @@
 import { INestApplicationContext } from '@nestjs/common';
 import {
-    CollectionService,
     FacetService,
-    ID,
     LanguageCode,
     ProductOptionGroup,
     RequestContext,
@@ -11,10 +9,8 @@ import {
 } from '@vendure/core';
 
 import {
-    CATALOG_COLLECTIONS,
     CATALOG_FACETS,
     OPTION_GROUP_TEMPLATES,
-    getCollectionTranslations,
     getFacetTranslations,
 } from './catalog-definitions';
 
@@ -27,7 +23,6 @@ type BootstrapSummary = {
 
 export async function bootstrapCatalogStructure(app: INestApplicationContext): Promise<BootstrapSummary> {
     const requestContextService = app.get(RequestContextService);
-    const collectionService = app.get(CollectionService);
     const facetService = app.get(FacetService);
     const connection = app.get(TransactionalConnection);
 
@@ -43,29 +38,6 @@ export async function bootstrapCatalogStructure(app: INestApplicationContext): P
         updatedFacets: 0,
     };
 
-    for (const collection of CATALOG_COLLECTIONS) {
-        const parent = await upsertCollection(ctx, collectionService, {
-            name: collection.name,
-            slug: collection.slug,
-        });
-        summary.createdCollections += parent.created ? 1 : 0;
-        summary.updatedCollections += parent.updated ? 1 : 0;
-
-        for (const child of collection.children ?? []) {
-            const result = await upsertCollection(
-                ctx,
-                collectionService,
-                {
-                    name: child.name,
-                    slug: child.slug,
-                },
-                parent.collection.id,
-            );
-            summary.createdCollections += result.created ? 1 : 0;
-            summary.updatedCollections += result.updated ? 1 : 0;
-        }
-    }
-
     for (const facetDefinition of CATALOG_FACETS) {
         const result = await upsertFacet(ctx, facetService, facetDefinition.code, facetDefinition.name);
         summary.createdFacets += result.created ? 1 : 0;
@@ -75,51 +47,6 @@ export async function bootstrapCatalogStructure(app: INestApplicationContext): P
     await logOptionGroupTemplates(ctx, connection);
 
     return summary;
-}
-
-async function upsertCollection(
-    ctx: RequestContext,
-    collectionService: CollectionService,
-    definition: { name: string; slug: string },
-    parentId?: ID,
-) {
-    const existing = await collectionService.findOneBySlug(ctx, definition.slug);
-
-    if (!existing) {
-        const created = await collectionService.create(ctx, {
-            filters: [],
-            isPrivate: false,
-            parentId,
-            translations: getCollectionTranslations(definition.name, definition.slug),
-        });
-        return { collection: created, created: true, updated: false };
-    }
-
-    let updated = false;
-    const translatedName = existing.name ?? '';
-    if (translatedName !== definition.name) {
-        await collectionService.update(ctx, {
-            id: existing.id,
-            translations: getCollectionTranslations(definition.name, definition.slug),
-        });
-        updated = true;
-    }
-
-    if (parentId) {
-        const actualParent = await collectionService.getParent(ctx, existing.id);
-        if (!actualParent || String(actualParent.id) !== String(parentId)) {
-            const siblings = await collectionService.getChildren(ctx, parentId);
-            await collectionService.move(ctx, {
-                collectionId: existing.id,
-                parentId,
-                index: siblings.length,
-            });
-            updated = true;
-        }
-    }
-
-    const resolved = (await collectionService.findOne(ctx, existing.id)) ?? existing;
-    return { collection: resolved, created: false, updated };
 }
 
 async function upsertFacet(
