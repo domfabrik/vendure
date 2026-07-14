@@ -43,7 +43,17 @@ describe('new order notification template', () => {
                         productName: 'Крем. Золото. Мрамор',
                         productVariantName: 'Черный 48 мм',
                         productUrl: 'https://shop.domfabric.ru/products/krem-zoloto-mramor',
+                        quantity: 2,
                         discountedUnitPriceWithTax: '1 814 ₽',
+                    },
+                    {
+                        position: 2,
+                        sku: '140000',
+                        productName: 'Тумбочка',
+                        productVariantName: 'Белая',
+                        productUrl: null,
+                        quantity: 1,
+                        discountedUnitPriceWithTax: '2 000 ₽',
                     },
                 ],
                 shippingLines: [],
@@ -58,6 +68,8 @@ describe('new order notification template', () => {
         expect(result.errors).toEqual([]);
         expect(renderedText).toContain('Позиция 1 · SKU: 139808 · Крем. Золото. Мрамор');
         expect(renderedText).toContain('Вариант: Черный 48 мм');
+        expect(renderedText).toContain('Количество: 2 шт.');
+        expect(renderedText).toContain('Количество: 1 шт.');
         expect(renderedText).toContain('Цена в магазине: 1 814 ₽');
         expect(result.html).toContain('href="https://shop.domfabric.ru/products/krem-zoloto-mramor"');
     });

@@ -7,7 +7,8 @@
             background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; } .order-line {
             border-bottom: 1px solid #e5e7eb; padding-bottom: 16px; margin-bottom: 16px; } .order-line-title {
             font-size: 16px; font-weight: 700; } .order-line-meta { color: #4b5563; margin-top: 6px; }
-            .order-line-price { margin-top: 6px; font-weight: 700; } .order-total { margin-top: 8px; }
+            .order-line-quantity { margin-top: 6px; } .order-line-price { margin-top: 6px; font-weight: 700; }
+            .order-total { margin-top: 8px; }
         </mj-style>
     </mj-head>
     <mj-body background-color='#f3f4f6'>
@@ -126,6 +127,7 @@
                                 <a href='{{productUrl}}'>→ Открыть товар</a>
                             {{/if}}
                         </div>
+                        <div class='order-line-quantity'>Количество: {{quantity}} шт.</div>
                         <div class='order-line-price'>Цена в магазине: {{discountedUnitPriceWithTax}}</div>
                     </mj-text>
                 {{/each}}
