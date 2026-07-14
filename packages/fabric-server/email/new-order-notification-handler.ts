@@ -5,14 +5,13 @@ import {
     transformOrderLineAssetUrls,
 } from '@vendure/email-plugin';
 
+import { getProductUrl, getStorefrontOrigin } from './product-url';
+
 const ORDER_NOTIFICATION_LOCALE = 'ru-RU';
 const ORDER_NOTIFICATION_TIME_ZONE = 'Europe/Moscow';
 const ORDER_NOTIFICATION_CURRENCY = 'RUB';
 
-export function createNewOrderNotificationHandler(
-    primaryRecipient: string,
-    ccRecipients: string[],
-) {
+export function createNewOrderNotificationHandler(primaryRecipient: string, ccRecipients: string[]) {
     return new EmailEventListener('new-order-notification')
         .on(OrderEvent)
         .filter(
@@ -38,7 +37,7 @@ export function createNewOrderNotificationHandler(
             transformOrderLineAssetUrls(event.ctx, event.order, injector);
 
             return {
-                display: toDisplayOrder(event.order),
+                display: toDisplayOrder(event.order, getStorefrontOrigin(process.env.STOREFRONT_ORIGIN)),
             };
         })
         .setRecipient(() => primaryRecipient)
@@ -59,7 +58,7 @@ export function createNewOrderNotificationHandler(
         }));
 }
 
-function toDisplayOrder(order: OrderEvent['order']) {
+export function toDisplayOrder(order: OrderEvent['order'], storefrontOrigin: string | null = null) {
     return {
         locale: ORDER_NOTIFICATION_LOCALE,
         currencyCode: ORDER_NOTIFICATION_CURRENCY,
@@ -71,10 +70,12 @@ function toDisplayOrder(order: OrderEvent['order']) {
             totalWithTax: formatMoneyValue(order.totalWithTax),
             shipping: formatMoneyValue(order.shippingWithTax),
         },
-        lines: (order.lines ?? []).map(line => ({
+        lines: (order.lines ?? []).map((line, index) => ({
+            position: index + 1,
             sku: line.productVariant?.sku ?? '-',
             productVariantName: line.productVariant?.name ?? '-',
             productName: line.productVariant?.product?.name ?? null,
+            productUrl: getProductUrl(storefrontOrigin, line.productVariant?.product?.slug),
             quantity: line.quantity,
             discountedUnitPriceWithTax: formatMoneyValue(line.discountedUnitPriceWithTax),
             discountedLinePriceWithTax: formatMoneyValue(line.discountedLinePriceWithTax),
