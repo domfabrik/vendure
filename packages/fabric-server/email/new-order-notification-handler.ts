@@ -5,6 +5,7 @@ import {
     transformOrderLineAssetUrls,
 } from '@vendure/email-plugin';
 
+import { getDisplayProductName, getDisplaySku } from './order-line-display';
 import { getProductUrl, getStorefrontOrigin } from './product-url';
 
 const ORDER_NOTIFICATION_LOCALE = 'ru-RU';
@@ -70,16 +71,21 @@ export function toDisplayOrder(order: OrderEvent['order'], storefrontOrigin: str
             totalWithTax: formatMoneyValue(order.totalWithTax),
             shipping: formatMoneyValue(order.shippingWithTax),
         },
-        lines: (order.lines ?? []).map((line, index) => ({
-            position: index + 1,
-            sku: line.productVariant?.sku ?? '-',
-            productVariantName: line.productVariant?.name ?? '-',
-            productName: line.productVariant?.product?.name ?? null,
-            productUrl: getProductUrl(storefrontOrigin, line.productVariant?.product?.slug),
-            quantity: line.quantity,
-            discountedUnitPriceWithTax: formatMoneyValue(line.discountedUnitPriceWithTax),
-            discountedLinePriceWithTax: formatMoneyValue(line.discountedLinePriceWithTax),
-        })),
+        lines: (order.lines ?? []).map((line, index) => {
+            const productVariant = line.productVariant;
+            const product = productVariant?.product;
+
+            return {
+                position: index + 1,
+                sku: getDisplaySku(productVariant?.sku, product?.slug),
+                productVariantName: productVariant?.name ?? '-',
+                productName: getDisplayProductName(product?.name, productVariant?.name),
+                productUrl: getProductUrl(storefrontOrigin, product?.slug),
+                quantity: line.quantity,
+                discountedUnitPriceWithTax: formatMoneyValue(line.discountedUnitPriceWithTax),
+                discountedLinePriceWithTax: formatMoneyValue(line.discountedLinePriceWithTax),
+            };
+        }),
         shippingLines: (order.shippingLines ?? []).map(line => ({
             name: line.shippingMethod?.name ?? null,
             priceWithTax: formatMoneyValue(line.priceWithTax),

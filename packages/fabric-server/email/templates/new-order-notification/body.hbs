@@ -115,10 +115,12 @@
                     <mj-text css-class='order-line'>
                         <div class='order-line-title'>Позиция
                             {{position}}
-                            · SKU:
-                            {{sku}}
+                            {{#if sku}}
+                                · SKU:
+                                {{sku}}
+                            {{/if}}
                             ·
-                            {{#if productName}}{{productName}}{{else}}-{{/if}}</div>
+                            {{productName}}</div>
                         <div class='order-line-meta'>
                             Вариант:
                             {{productVariantName}}
