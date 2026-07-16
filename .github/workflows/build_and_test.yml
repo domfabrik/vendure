@@ -3,18 +3,8 @@ on:
     workflow_dispatch:
     push:
         branches:
-            - master
-            - minor
-            - major
-        paths:
-            - 'packages/**'
-            - 'package.json'
-            - 'package-lock.json'
-    pull_request:
-        branches:
-            - master
-            - major
-            - minor
+            - main
+            - test
         paths:
             - 'packages/**'
             - 'package.json'
@@ -24,7 +14,7 @@ env:
     CI: true
 
 concurrency:
-    group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+    group: ${{ github.workflow }}-${{ github.ref }}
     cancel-in-progress: true
 
 # NOTE: The Elasticsearch and Redis service definitions are duplicated across the e2e-* jobs
@@ -76,8 +66,7 @@ jobs:
             - name: Check for dashboard changes
               id: check
               run: |
-                  base="${{ github.event.pull_request.base.sha }}"
-                  if [ -z "$base" ]; then base="${{ github.event.before }}"; fi
+                  base="${{ github.event.before }}"
                   if [ -z "$base" ]; then base="HEAD~1"; fi
                   if git diff --name-only "$base" HEAD | grep -q '^packages/dashboard/'; then
                     echo "changed=true" >> "$GITHUB_OUTPUT"
@@ -139,7 +128,6 @@ jobs:
               working-directory: packages/dashboard
     sonarqube:
         name: SonarQube
-        if: github.event_name != 'pull_request' || !github.event.pull_request.head.repo.fork
         runs-on: ubuntu-latest
         permissions:
             contents: read
@@ -180,7 +168,7 @@ jobs:
         strategy:
             fail-fast: false
             matrix:
-                node: ${{ github.event_name == 'pull_request' && fromJSON('["22.x"]') || fromJSON('["20.x", "22.x", "24.x"]') }}
+                node: [20.x, 22.x, 24.x]
         steps:
             - uses: actions/checkout@v4
             - uses: ./.github/actions/setup
@@ -228,7 +216,7 @@ jobs:
         strategy:
             fail-fast: false
             matrix:
-                node: ${{ github.event_name == 'pull_request' && fromJSON('["22.x"]') || fromJSON('["20.x", "22.x", "24.x"]') }}
+                node: [20.x, 22.x, 24.x]
         steps:
             - uses: actions/checkout@v4
             - uses: ./.github/actions/setup
@@ -275,7 +263,7 @@ jobs:
         strategy:
             fail-fast: false
             matrix:
-                node: ${{ github.event_name == 'pull_request' && fromJSON('["22.x"]') || fromJSON('["20.x", "22.x", "24.x"]') }}
+                node: [20.x, 22.x, 24.x]
         steps:
             - uses: actions/checkout@v4
             - uses: ./.github/actions/setup
@@ -323,7 +311,7 @@ jobs:
         strategy:
             fail-fast: false
             matrix:
-                node: ${{ github.event_name == 'pull_request' && fromJSON('["22.x"]') || fromJSON('["20.x", "22.x", "24.x"]') }}
+                node: [20.x, 22.x, 24.x]
         steps:
             - uses: actions/checkout@v4
             - uses: ./.github/actions/setup

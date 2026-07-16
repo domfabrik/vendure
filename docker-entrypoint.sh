@@ -1,18 +1,17 @@
 #!/bin/sh
 set -eu
 
-SCRIPT_PREFIX="node -r ts-node/register -r tsconfig-paths/register"
 ROLE="${VENDURE_ROLE:-server}"
 
 case "$ROLE" in
     bootstrap)
-        exec sh -c "$SCRIPT_PREFIX packages/fabric-server/prepare.ts"
+        exec node .docker-runtime/packages/fabric-server/prepare.js
         ;;
     server)
-        exec sh -c "$SCRIPT_PREFIX packages/fabric-server/index-server.ts"
+        exec node .docker-runtime/packages/fabric-server/index-server.js
         ;;
     worker)
-        exec sh -c "$SCRIPT_PREFIX packages/fabric-server/index-worker.ts"
+        exec node .docker-runtime/packages/fabric-server/index-worker.js
         ;;
     *)
         echo "Unknown VENDURE_ROLE: $ROLE" >&2

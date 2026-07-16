@@ -1,4 +1,5 @@
 import { AssetServerPlugin } from '@vendure/asset-server-plugin';
+import { DashboardPlugin } from '@vendure/dashboard/plugin';
 import {
     DefaultJobQueuePlugin,
     DefaultLogger,
@@ -8,8 +9,14 @@ import {
     LogLevel,
     VendureConfig,
 } from '@vendure/core';
+import { EmailPlugin, FileBasedTemplateLoader } from '@vendure/email-plugin';
 import 'dotenv/config';
 import path from 'path';
+
+import { aridaCatalogCustomFields } from './catalog/custom-fields';
+import { CatalogPricingPlugin } from './catalog/catalog-pricing.plugin';
+import { OrderEmailHistoryPlugin } from './email/email-history.plugin';
+import { createNewOrderNotificationHandler } from './email/new-order-notification-handler';
 
 class ExactStockDisplayStrategy {
     getStockLevel(_ctx: unknown, _productVariant: unknown, saleableStockLevel: number): string {
@@ -24,7 +31,10 @@ const storefrontOrigins = (process.env.STOREFRONT_ORIGIN ?? '')
 
 const logLevel = process.env.LOG_LEVEL === 'debug' ? LogLevel.Debug : LogLevel.Info;
 const assetUploadDir = process.env.VENDURE_ASSET_UPLOAD_DIR ?? path.join(process.cwd(), 'var/assets');
+const dashboardAppDir = path.join(process.cwd(), 'packages/fabric-server/dashboard/dist');
+const emailTemplateDir = path.join(process.cwd(), 'packages/fabric-server/email/templates');
 const superadminCredentials = getSuperadminCredentials();
+const migrationExtension = path.extname(__filename) === '.js' ? 'js' : 'ts';
 
 export const fabricServerConfig: VendureConfig = {
     apiOptions: {
@@ -58,7 +68,7 @@ export const fabricServerConfig: VendureConfig = {
         database: process.env.DB_NAME ?? 'vendure',
         schema: process.env.DB_SCHEMA ?? 'public',
         synchronize: process.env.VENDURE_DB_SYNCHRONIZE === 'true',
-        migrations: [path.join(__dirname, '../dev-server/migrations/*.ts')],
+        migrations: [path.join(__dirname, `../dev-server/migrations/*.${migrationExtension}`)],
     },
     paymentOptions: {
         paymentMethodHandlers: [dummyPaymentHandler],
@@ -66,7 +76,7 @@ export const fabricServerConfig: VendureConfig = {
     catalogOptions: {
         stockDisplayStrategy: new ExactStockDisplayStrategy(),
     },
-    customFields: {},
+    customFields: aridaCatalogCustomFields,
     logger: new DefaultLogger({ level: logLevel }),
     importExportOptions: {
         importAssetsDir: path.join(__dirname, '../core/mock-data/assets'),
@@ -76,11 +86,18 @@ export const fabricServerConfig: VendureConfig = {
             route: 'assets',
             assetUploadDir,
         }),
+        DashboardPlugin.init({
+            route: 'admin-dashboard',
+            appDir: dashboardAppDir,
+        }),
         DefaultSearchPlugin.init({
             bufferUpdates: false,
             indexStockStatus: false,
         }),
+        CatalogPricingPlugin,
         DefaultJobQueuePlugin.init({}),
+        OrderEmailHistoryPlugin,
+        ...getEmailPlugins(),
         ...(process.env.VENDURE_ENABLE_SCHEDULER === 'true' ? [DefaultSchedulerPlugin.init({})] : []),
     ],
 };
@@ -113,4 +130,74 @@ function getSuperadminCredentials():
         identifier,
         password,
     };
+}
+
+function getEmailPlugins() {
+    const primaryRecipient = process.env.ORDER_NOTIFICATION_RECIPIENT?.trim();
+    if (!primaryRecipient) {
+        return [];
+    }
+    const ccRecipients = splitList(process.env.ORDER_NOTIFICATION_CC_RECIPIENTS);
+
+    const host = process.env.EMAIL_SMTP_HOST?.trim();
+    const user = process.env.EMAIL_SMTP_USER?.trim();
+    const password = process.env.EMAIL_SMTP_PASSWORD?.trim();
+    const fromAddress = process.env.EMAIL_FROM_ADDRESS?.trim();
+
+    if (!host || !user || !password || !fromAddress) {
+        console.warn(
+            '[email] ORDER_NOTIFICATION_RECIPIENT is set, but SMTP config is incomplete. Email notifications are disabled.',
+        );
+        return [];
+    }
+
+    const rawPort = process.env.EMAIL_SMTP_PORT?.trim();
+    const port = rawPort ? Number(rawPort) : 465;
+    if (Number.isNaN(port)) {
+        console.warn('[email] EMAIL_SMTP_PORT is invalid. Email notifications are disabled.');
+        return [];
+    }
+
+    return [
+        EmailPlugin.init({
+            handlers: [createNewOrderNotificationHandler(primaryRecipient, ccRecipients)],
+            templateLoader: new FileBasedTemplateLoader(emailTemplateDir),
+            transport: {
+                type: 'smtp',
+                host,
+                port,
+                secure: parseBooleanEnv(process.env.EMAIL_SMTP_SECURE, port === 465),
+                auth: {
+                    user,
+                    pass: password,
+                },
+                logging: parseBooleanEnv(process.env.EMAIL_SMTP_LOGGING, false),
+                debug: parseBooleanEnv(process.env.EMAIL_SMTP_DEBUG, false),
+            },
+            globalTemplateVars: {
+                fromAddress,
+            },
+        }),
+    ];
+}
+
+function splitList(value: string | undefined): string[] {
+    return (value ?? '')
+        .split(/[;,\n]/)
+        .map(item => item.trim())
+        .filter(Boolean);
+}
+
+function parseBooleanEnv(value: string | undefined, defaultValue: boolean): boolean {
+    if (value == null || value.trim() === '') {
+        return defaultValue;
+    }
+    const normalized = value.trim().toLowerCase();
+    if (normalized === 'true' || normalized === '1' || normalized === 'yes') {
+        return true;
+    }
+    if (normalized === 'false' || normalized === '0' || normalized === 'no') {
+        return false;
+    }
+    return defaultValue;
 }

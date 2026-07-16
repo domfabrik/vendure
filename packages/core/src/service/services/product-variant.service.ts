@@ -6,6 +6,7 @@ import {
     DeletionResponse,
     DeletionResult,
     GlobalFlag,
+    LogicalOperator,
     Permission,
     ProductVariantFilterParameter,
     RemoveProductVariantsFromChannelInput,
@@ -36,15 +37,19 @@ import {
     TaxCategory,
 } from '../../entity';
 import { FacetValue } from '../../entity/facet-value/facet-value.entity';
+import { Product } from '../../entity/product/product.entity';
 import { ProductOption } from '../../entity/product-option/product-option.entity';
 import { ProductVariantTranslation } from '../../entity/product-variant/product-variant-translation.entity';
 import { ProductVariant } from '../../entity/product-variant/product-variant.entity';
-import { Product } from '../../entity/product/product.entity';
 import { EventBus } from '../../event-bus/event-bus';
 import { ProductVariantChannelEvent } from '../../event-bus/events/product-variant-channel-event';
 import { ProductVariantEvent } from '../../event-bus/events/product-variant-event';
 import { ProductVariantPriceEvent } from '../../event-bus/events/product-variant-price-event';
 import { CustomFieldRelationService } from '../helpers/custom-field-relation/custom-field-relation.service';
+import {
+    expandProductVariantFacetValueFilter,
+    PRODUCT_FACET_VALUE_ID_FILTER,
+} from '../helpers/list-query-builder/inherited-facet-value-filter';
 import { ListQueryBuilder } from '../helpers/list-query-builder/list-query-builder';
 import { ProductPriceApplicator } from '../helpers/product-price-applicator/product-price-applicator';
 import { TranslatableSaver } from '../helpers/translatable-saver/translatable-saver';
@@ -96,17 +101,27 @@ export class ProductVariantService {
     ): Promise<PaginatedList<Translated<ProductVariant>>> {
         const relations = ['featuredAsset', 'taxCategory', 'channels'];
         const customPropertyMap: { [name: string]: string } = {};
+        const effectiveOptions = options
+            ? {
+                  ...options,
+                  filter: expandProductVariantFacetValueFilter(
+                      options.filter,
+                      options.filterOperator ?? LogicalOperator.AND,
+                  ),
+              }
+            : options;
         const hasFacetValueIdFilter =
             this.listQueryBuilder.filterObjectHasProperty<ProductVariantFilterParameter>(
-                options?.filter,
+                effectiveOptions?.filter,
                 'facetValueId',
             );
         if (hasFacetValueIdFilter) {
             relations.push('facetValues');
             customPropertyMap.facetValueId = 'facetValues.id';
+            customPropertyMap[PRODUCT_FACET_VALUE_ID_FILTER] = 'product.facetValues.id';
         }
         return this.listQueryBuilder
-            .build(ProductVariant, options, {
+            .build(ProductVariant, effectiveOptions, {
                 relations,
                 channelId: ctx.channelId,
                 where: { deletedAt: IsNull() },
