@@ -84,7 +84,14 @@ describe('order line display values', () => {
             getDisplaySku('tumba-detskaya-natali-belyj-glyanec', 'tumba-detskaya-natali-belyj-glyanec'),
         ).toBeNull();
         expect(getDisplaySku('139229', '139229')).toBe('139229');
-        expect(getDisplayProductName(undefined, 'Тумба детская Натали белый глянец')).toBe(
+        expect(
+            getDisplayProductName(
+                undefined,
+                [{ languageCode: 'ru', name: 'Тумба детская Натали' }],
+                'Тумба детская Натали белый глянец',
+            ),
+        ).toBe('Тумба детская Натали');
+        expect(getDisplayProductName(undefined, [], 'Тумба детская Натали белый глянец')).toBe(
             'Тумба детская Натали белый глянец',
         );
     });

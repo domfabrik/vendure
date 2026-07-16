@@ -1,8 +1,20 @@
 export function getDisplayProductName(
     productName: string | null | undefined,
+    productTranslations: ReadonlyArray<{ languageCode?: string; name?: string | null }> | null | undefined,
     productVariantName: string | null | undefined,
 ): string {
-    return productName ?? productVariantName ?? '-';
+    return (
+        getNonEmptyValue(productName) ??
+        productTranslations
+            ?.filter(translation => translation.languageCode === 'ru')
+            .map(translation => getNonEmptyValue(translation.name))
+            .find((name): name is string => name != null) ??
+        productTranslations
+            ?.map(translation => getNonEmptyValue(translation.name))
+            .find((name): name is string => name != null) ??
+        getNonEmptyValue(productVariantName) ??
+        '-'
+    );
 }
 
 export function getDisplaySku(
@@ -28,4 +40,8 @@ export function getDisplaySku(
     }
 
     return normalizedSku;
+}
+
+function getNonEmptyValue(value: string | null | undefined): string | null {
+    return value?.trim() || null;
 }
