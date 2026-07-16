@@ -67,6 +67,13 @@ describe('new order notification template', () => {
         const renderedText = result.html.replace(/\s+/g, ' ');
 
         expect(result.errors).toEqual([]);
+        expect(renderedText).toContain('Новый заказ');
+        expect(renderedText).toContain('Код заказа: T-1');
+        expect(renderedText).toContain('Создан 14 июля 2026 г.');
+        expect(renderedText).not.toContain('Статус:');
+        expect(renderedText).not.toContain('Позиций:');
+        expect(renderedText).not.toContain('Адрес доставки');
+        expect(renderedText).not.toContain('Платёжный адрес');
         expect(renderedText).toContain('Позиция 1 · SKU: 139808 · Крем. Золото. Мрамор');
         expect(renderedText).toContain('Позиция 2 · Тумбочка Белая');
         expect(renderedText).not.toContain('SKU: -');
