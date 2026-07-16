@@ -4,6 +4,7 @@ import mjml2html from 'mjml';
 import path from 'path';
 import { describe, expect, it } from 'vitest';
 
+import { getDisplayProductName, getDisplaySku } from './order-line-display';
 import { getProductUrl, getStorefrontOrigin } from './product-url';
 
 describe('product URL for new order notification', () => {
@@ -48,8 +49,8 @@ describe('new order notification template', () => {
                     },
                     {
                         position: 2,
-                        sku: '140000',
-                        productName: 'Тумбочка',
+                        sku: null,
+                        productName: 'Тумбочка Белая',
                         productVariantName: 'Белая',
                         productUrl: null,
                         quantity: 1,
@@ -67,10 +68,31 @@ describe('new order notification template', () => {
 
         expect(result.errors).toEqual([]);
         expect(renderedText).toContain('Позиция 1 · SKU: 139808 · Крем. Золото. Мрамор');
+        expect(renderedText).toContain('Позиция 2 · Тумбочка Белая');
+        expect(renderedText).not.toContain('SKU: -');
         expect(renderedText).toContain('Вариант: Черный 48 мм');
         expect(renderedText).toContain('Количество: 2 шт.');
         expect(renderedText).toContain('Количество: 1 шт.');
         expect(renderedText).toContain('Цена в магазине: 1 814 ₽');
         expect(result.html).toContain('href="https://shop.domfabric.ru/products/krem-zoloto-mramor"');
+    });
+});
+
+describe('order line display values', () => {
+    it('uses the variant name as a product-name fallback and hides a slug used as a technical SKU', () => {
+        expect(
+            getDisplaySku('tumba-detskaya-natali-belyj-glyanec', 'tumba-detskaya-natali-belyj-glyanec'),
+        ).toBeNull();
+        expect(getDisplaySku('139229', '139229')).toBe('139229');
+        expect(
+            getDisplayProductName(
+                undefined,
+                [{ languageCode: 'ru', name: 'Тумба детская Натали' }],
+                'Тумба детская Натали белый глянец',
+            ),
+        ).toBe('Тумба детская Натали');
+        expect(getDisplayProductName(undefined, [], 'Тумба детская Натали белый глянец')).toBe(
+            'Тумба детская Натали белый глянец',
+        );
     });
 });
