@@ -44,6 +44,8 @@ describe('new order notification template', () => {
         expect(leftColumn).toContain('Позиций:');
         expect(rightColumn).toContain('{{order.code}}');
         expect(rightColumn).toContain('{{order.state}}');
+        expect(orderContents).not.toContain('SKU');
+        expect(orderContents).not.toContain('Подытог');
         const mjml = Handlebars.compile(template)({
             order: { code: 'ZCASHY37F3KDMA-YJ', state: 'ArrangingPayment', totalQuantity: 1 },
             display: {
@@ -91,14 +93,22 @@ describe('new order notification template', () => {
         expect(renderedText).toContain('word-break: break-all');
         expect(renderedText).not.toContain('Адрес доставки');
         expect(renderedText).not.toContain('Платёжный адрес');
-        expect(renderedText).toContain('Позиция 1 · SKU: 139808 · Крем. Золото. Мрамор');
+        expect(renderedText).toContain('Позиция 1');
+        expect(renderedText).toContain('Крем. Золото. Мрамор');
         expect(renderedText).toContain('Позиция 2 · Тумбочка Белая');
-        expect(renderedText).not.toContain('SKU: -');
+        expect(renderedText).not.toContain('SKU:');
+        expect(renderedText).not.toContain('139808');
+        expect(renderedText).not.toContain('Подытог:');
         expect(renderedText).toContain('Вариант: Черный 48 мм');
         expect(renderedText).toContain('Количество: 2 шт.');
         expect(renderedText).toContain('Количество: 1 шт.');
         expect(renderedText).toContain('Цена в магазине: 1 814 ₽');
         expect(result.html).toContain('href="https://shop.domfabric.ru/products/krem-zoloto-mramor"');
+        expect(result.html).toContain(
+            '<a href="https://shop.domfabric.ru/products/krem-zoloto-mramor">Крем. Золото. Мрамор</a>',
+        );
+        expect(result.html).not.toContain('→ Открыть товар');
+        expect(result.html).not.toContain('Тумбочка Белая</a>');
     });
 });
 

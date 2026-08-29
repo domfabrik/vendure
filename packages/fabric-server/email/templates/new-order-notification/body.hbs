@@ -95,26 +95,21 @@
                     <mj-text css-class='order-line'>
                         <div class='order-line-title'>Позиция
                             {{position}}
-                            {{#if sku}}
-                                · SKU:
-                                {{sku}}
-                            {{/if}}
                             ·
-                            {{productName}}</div>
+                            {{#if productUrl}}
+                                <a href='{{productUrl}}'>{{productName}}</a>
+                            {{else}}
+                                {{productName}}
+                            {{/if}}
+                        </div>
                         <div class='order-line-meta'>
                             Вариант:
                             {{productVariantName}}
-                            {{#if productUrl}}
-                                ·
-                                <a href='{{productUrl}}'>→ Открыть товар</a>
-                            {{/if}}
                         </div>
                         <div class='order-line-quantity'>Количество: {{quantity}} шт.</div>
                         <div class='order-line-price'>Цена в магазине: {{discountedUnitPriceWithTax}}</div>
                     </mj-text>
                 {{/each}}
-                <mj-text css-class='order-total'><strong>Подытог:</strong>
-                    {{display.totals.subTotalWithTax}}</mj-text>
                 {{#each display.shippingLines}}
                     <mj-text css-class='order-total'>Доставка{{#if name}} ({{name}}){{/if}}:
                         {{priceWithTax}}</mj-text>
