@@ -8,20 +8,44 @@
             border-bottom: 1px solid #e5e7eb; padding-bottom: 16px; margin-bottom: 16px; } .order-line-title {
             font-size: 16px; font-weight: 700; } .order-line-meta { color: #4b5563; margin-top: 6px; }
             .order-line-quantity { margin-top: 6px; } .order-line-price { margin-top: 6px; font-weight: 700; }
-            .order-total { margin-top: 8px; }
+            .order-total { margin-top: 8px; } .header-summary { font-size: 16px; line-height: 1.5;
+            font-weight: 700; } .header-technical { font-size: 11px; line-height: 1.35; } .order-code {
+            overflow-wrap: anywhere; word-break: break-all; font-size: 11px; }
         </mj-style>
     </mj-head>
     <mj-body background-color='#f3f4f6'>
         <mj-section background-color='#111827' padding='24px'>
-            <mj-column>
+            <mj-column width='65%'>
                 <mj-text color='#ffffff' font-size='24px' font-weight='700'>
                     Новый заказ
                 </mj-text>
-                <mj-text color='#d1d5db' font-size='14px'>
-                    Код заказа:
-                    {{order.code}}<br />
-                    Создан
-                    {{display.createdAt}}
+                <mj-text
+                    css-class='header-summary'
+                    color='#ffffff'
+                    font-size='16px'
+                    font-weight='700'
+                    padding-top='0'
+                >
+                    <strong>Создан:</strong>
+                    {{display.createdAt}}<br />
+                    <strong>Итого:</strong>
+                    {{display.totals.totalWithTax}}<br />
+                    <strong>Позиций:</strong>
+                    {{order.totalQuantity}}
+                </mj-text>
+            </mj-column>
+            <mj-column width='35%'>
+                <mj-text
+                    css-class='header-technical'
+                    align='right'
+                    color='#d1d5db'
+                    font-size='11px'
+                    padding-top='8px'
+                >
+                    <span class='meta-label'>Номер заказа:</span><br />
+                    <span class='order-code'>{{order.code}}</span><br />
+                    <span class='meta-label'>Статус:</span><br />
+                    <span>{{order.state}}</span>
                 </mj-text>
             </mj-column>
         </mj-section>
