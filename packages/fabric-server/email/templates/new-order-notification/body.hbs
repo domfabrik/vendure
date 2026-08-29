@@ -97,7 +97,10 @@
                             {{position}}
                             ·
                             {{#if productUrl}}
-                                <a href='{{productUrl}}'>{{productName}}</a>
+                                <a
+                                    href='{{productUrl}}'
+                                    style='color:#2563eb;text-decoration:underline;'
+                                >{{productName}}</a>
                             {{else}}
                                 {{productName}}
                             {{/if}}
