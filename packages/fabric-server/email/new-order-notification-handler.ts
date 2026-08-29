@@ -5,7 +5,7 @@ import {
     transformOrderLineAssetUrls,
 } from '@vendure/email-plugin';
 
-import { getDisplayProductName, getDisplaySku } from './order-line-display';
+import { getDisplayProductName, getDisplayProductSlug, getDisplaySku } from './order-line-display';
 import { getProductUrl, getStorefrontOrigin } from './product-url';
 
 const ORDER_NOTIFICATION_LOCALE = 'ru-RU';
@@ -75,17 +75,18 @@ export function toDisplayOrder(order: OrderEvent['order'], storefrontOrigin: str
         lines: (order.lines ?? []).map((line, index) => {
             const productVariant = line.productVariant;
             const product = productVariant?.product;
+            const productSlug = getDisplayProductSlug(product?.slug, product?.translations);
 
             return {
                 position: index + 1,
-                sku: getDisplaySku(productVariant?.sku, product?.slug),
+                sku: getDisplaySku(productVariant?.sku, productSlug),
                 productVariantName: productVariant?.name ?? '-',
                 productName: getDisplayProductName(
                     product?.name,
                     product?.translations,
                     productVariant?.name,
                 ),
-                productUrl: getProductUrl(storefrontOrigin, product?.slug),
+                productUrl: getProductUrl(storefrontOrigin, productSlug),
                 quantity: line.quantity,
                 discountedUnitPriceWithTax: formatMoneyValue(line.discountedUnitPriceWithTax),
                 discountedLinePriceWithTax: formatMoneyValue(line.discountedLinePriceWithTax),

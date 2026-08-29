@@ -17,6 +17,23 @@ export function getDisplayProductName(
     );
 }
 
+export function getDisplayProductSlug(
+    productSlug: string | null | undefined,
+    productTranslations: ReadonlyArray<{ languageCode?: string; slug?: string | null }> | null | undefined,
+): string | null {
+    return (
+        getNonEmptyValue(productSlug) ??
+        productTranslations
+            ?.filter(translation => translation.languageCode === 'ru')
+            .map(translation => getNonEmptyValue(translation.slug))
+            .find((slug): slug is string => slug != null) ??
+        productTranslations
+            ?.map(translation => getNonEmptyValue(translation.slug))
+            .find((slug): slug is string => slug != null) ??
+        null
+    );
+}
+
 export function getDisplaySku(
     sku: string | null | undefined,
     productSlug: string | null | undefined,

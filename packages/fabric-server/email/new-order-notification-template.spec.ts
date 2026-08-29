@@ -4,7 +4,7 @@ import mjml2html from 'mjml';
 import path from 'path';
 import { describe, expect, it } from 'vitest';
 
-import { getDisplayProductName, getDisplaySku } from './order-line-display';
+import { getDisplayProductName, getDisplayProductSlug, getDisplaySku } from './order-line-display';
 import { getProductUrl, getStorefrontOrigin } from './product-url';
 
 describe('product URL for new order notification', () => {
@@ -104,15 +104,27 @@ describe('new order notification template', () => {
         expect(renderedText).toContain('Количество: 1 шт.');
         expect(renderedText).toContain('Цена в магазине: 1 814 ₽');
         expect(result.html).toContain('href="https://shop.domfabric.ru/products/krem-zoloto-mramor"');
-        expect(result.html).toContain(
-            '<a href="https://shop.domfabric.ru/products/krem-zoloto-mramor">Крем. Золото. Мрамор</a>',
-        );
+        expect(result.html).toContain('>Крем. Золото. Мрамор</a>');
+        expect(result.html).toContain('color:#2563eb;text-decoration:underline;');
         expect(result.html).not.toContain('→ Открыть товар');
         expect(result.html).not.toContain('Тумбочка Белая</a>');
     });
 });
 
 describe('order line display values', () => {
+    it('uses a localized translation slug when the locale field was not hydrated', () => {
+        expect(
+            getDisplayProductSlug(undefined, [
+                { languageCode: 'en', slug: 'english-chair' },
+                { languageCode: 'ru', slug: 'russkij-stul' },
+            ]),
+        ).toBe('russkij-stul');
+        expect(getDisplayProductSlug(undefined, [{ languageCode: 'en', slug: 'english-chair' }])).toBe(
+            'english-chair',
+        );
+        expect(getDisplayProductSlug(undefined, [{ languageCode: 'ru', slug: '  ' }])).toBeNull();
+    });
+
     it('uses the variant name as a product-name fallback and hides a slug used as a technical SKU', () => {
         expect(
             getDisplaySku('tumba-detskaya-natali-belyj-glyanec', 'tumba-detskaya-natali-belyj-glyanec'),
