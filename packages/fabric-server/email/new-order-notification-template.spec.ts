@@ -4,6 +4,7 @@ import mjml2html from 'mjml';
 import path from 'path';
 import { describe, expect, it } from 'vitest';
 
+import { getDisplayProductName, getDisplayProductSlug, getDisplaySku } from './order-line-display';
 import { getProductUrl, getStorefrontOrigin } from './product-url';
 
 describe('product URL for new order notification', () => {
@@ -31,8 +32,22 @@ describe('new order notification template', () => {
 
         const orderContents = template.slice(template.indexOf('Состав заказа'), template.indexOf('Платежи'));
         expect(orderContents).not.toContain('<mj-table');
+        const headerStart = template.indexOf("<mj-section background-color='#111827'");
+        const header = template.slice(headerStart, template.indexOf('</mj-section>', headerStart));
+        const leftColumnStart = header.indexOf("<mj-column width='65%'>");
+        const leftColumn = header.slice(leftColumnStart, header.indexOf('</mj-column>', leftColumnStart));
+        const rightColumnStart = header.indexOf("<mj-column width='35%'>");
+        const rightColumn = header.slice(rightColumnStart, header.indexOf('</mj-column>', rightColumnStart));
+
+        expect(leftColumn).toContain('Создан:');
+        expect(leftColumn).toContain('Итого:');
+        expect(leftColumn).toContain('Позиций:');
+        expect(rightColumn).toContain('{{order.code}}');
+        expect(rightColumn).toContain('{{order.state}}');
+        expect(orderContents).not.toContain('SKU');
+        expect(orderContents).not.toContain('Подытог');
         const mjml = Handlebars.compile(template)({
-            order: { code: 'T-1', state: 'ArrangingPayment', totalQuantity: 1 },
+            order: { code: 'ZCASHY37F3KDMA-YJ', state: 'ArrangingPayment', totalQuantity: 1 },
             display: {
                 createdAt: '14 июля 2026 г.',
                 totals: { subTotalWithTax: '1 814 ₽', totalWithTax: '1 814 ₽' },
@@ -48,8 +63,8 @@ describe('new order notification template', () => {
                     },
                     {
                         position: 2,
-                        sku: '140000',
-                        productName: 'Тумбочка',
+                        sku: null,
+                        productName: 'Тумбочка Белая',
                         productVariantName: 'Белая',
                         productUrl: null,
                         quantity: 1,
@@ -66,11 +81,64 @@ describe('new order notification template', () => {
         const renderedText = result.html.replace(/\s+/g, ' ');
 
         expect(result.errors).toEqual([]);
-        expect(renderedText).toContain('Позиция 1 · SKU: 139808 · Крем. Золото. Мрамор');
+        expect(renderedText).toContain('Новый заказ');
+        expect(renderedText).toContain('Номер заказа:');
+        expect(renderedText).toContain('ZCASHY37F3KDMA-YJ');
+        expect(renderedText).toContain('Статус:');
+        expect(renderedText).toContain('ArrangingPayment');
+        expect(renderedText).toContain('Создан:');
+        expect(renderedText).toContain('14 июля 2026 г.');
+        expect(renderedText).toContain('Итого:');
+        expect(renderedText).toContain('Позиций:');
+        expect(renderedText).toContain('word-break: break-all');
+        expect(renderedText).not.toContain('Адрес доставки');
+        expect(renderedText).not.toContain('Платёжный адрес');
+        expect(renderedText).toContain('Позиция 1');
+        expect(renderedText).toContain('Крем. Золото. Мрамор');
+        expect(renderedText).toContain('Позиция 2 · Тумбочка Белая');
+        expect(renderedText).not.toContain('SKU:');
+        expect(renderedText).not.toContain('139808');
+        expect(renderedText).not.toContain('Подытог:');
         expect(renderedText).toContain('Вариант: Черный 48 мм');
         expect(renderedText).toContain('Количество: 2 шт.');
         expect(renderedText).toContain('Количество: 1 шт.');
         expect(renderedText).toContain('Цена в магазине: 1 814 ₽');
         expect(result.html).toContain('href="https://shop.domfabric.ru/products/krem-zoloto-mramor"');
+        expect(result.html).toContain('>Крем. Золото. Мрамор</a>');
+        expect(result.html).toContain('color:#2563eb;text-decoration:underline;');
+        expect(result.html).not.toContain('→ Открыть товар');
+        expect(result.html).not.toContain('Тумбочка Белая</a>');
+    });
+});
+
+describe('order line display values', () => {
+    it('uses a localized translation slug when the locale field was not hydrated', () => {
+        expect(
+            getDisplayProductSlug(undefined, [
+                { languageCode: 'en', slug: 'english-chair' },
+                { languageCode: 'ru', slug: 'russkij-stul' },
+            ]),
+        ).toBe('russkij-stul');
+        expect(getDisplayProductSlug(undefined, [{ languageCode: 'en', slug: 'english-chair' }])).toBe(
+            'english-chair',
+        );
+        expect(getDisplayProductSlug(undefined, [{ languageCode: 'ru', slug: '  ' }])).toBeNull();
+    });
+
+    it('uses the variant name as a product-name fallback and hides a slug used as a technical SKU', () => {
+        expect(
+            getDisplaySku('tumba-detskaya-natali-belyj-glyanec', 'tumba-detskaya-natali-belyj-glyanec'),
+        ).toBeNull();
+        expect(getDisplaySku('139229', '139229')).toBe('139229');
+        expect(
+            getDisplayProductName(
+                undefined,
+                [{ languageCode: 'ru', name: 'Тумба детская Натали' }],
+                'Тумба детская Натали белый глянец',
+            ),
+        ).toBe('Тумба детская Натали');
+        expect(getDisplayProductName(undefined, [], 'Тумба детская Натали белый глянец')).toBe(
+            'Тумба детская Натали белый глянец',
+        );
     });
 });

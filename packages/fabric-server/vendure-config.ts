@@ -35,6 +35,14 @@ const dashboardAppDir = path.join(process.cwd(), 'packages/fabric-server/dashboa
 const emailTemplateDir = path.join(process.cwd(), 'packages/fabric-server/email/templates');
 const superadminCredentials = getSuperadminCredentials();
 const migrationExtension = path.extname(__filename) === '.js' ? 'js' : 'ts';
+const vendureRole = process.env.VENDURE_ROLE ?? 'server';
+const dbPoolMax = parsePositiveInt(
+    process.env.VENDURE_DB_POOL_MAX,
+    vendureRole === 'worker' || vendureRole === 'bootstrap' ? 4 : 8,
+);
+const jobQueuePollInterval = parsePositiveInt(process.env.VENDURE_JOB_QUEUE_POLL_INTERVAL_MS, 1000);
+const jobQueueConcurrency = parsePositiveInt(process.env.VENDURE_JOB_QUEUE_CONCURRENCY, 1);
+const bufferSearchUpdates = process.env.VENDURE_SEARCH_BUFFER_UPDATES === 'true';
 
 export const fabricServerConfig: VendureConfig = {
     apiOptions: {
@@ -68,6 +76,12 @@ export const fabricServerConfig: VendureConfig = {
         database: process.env.DB_NAME ?? 'vendure',
         schema: process.env.DB_SCHEMA ?? 'public',
         synchronize: process.env.VENDURE_DB_SYNCHRONIZE === 'true',
+        extra: {
+            max: dbPoolMax,
+            connectionTimeoutMillis: 5000,
+            idleTimeoutMillis: 30000,
+            application_name: `fabric-${vendureRole}`,
+        },
         migrations: [path.join(__dirname, `../dev-server/migrations/*.${migrationExtension}`)],
     },
     paymentOptions: {
@@ -91,11 +105,14 @@ export const fabricServerConfig: VendureConfig = {
             appDir: dashboardAppDir,
         }),
         DefaultSearchPlugin.init({
-            bufferUpdates: false,
+            bufferUpdates: bufferSearchUpdates,
             indexStockStatus: false,
         }),
         CatalogPricingPlugin,
-        DefaultJobQueuePlugin.init({}),
+        DefaultJobQueuePlugin.init({
+            pollInterval: jobQueuePollInterval,
+            concurrency: jobQueueConcurrency,
+        }),
         OrderEmailHistoryPlugin,
         ...getEmailPlugins(),
         ...(process.env.VENDURE_ENABLE_SCHEDULER === 'true' ? [DefaultSchedulerPlugin.init({})] : []),
@@ -111,6 +128,14 @@ function parseTrustProxy(value: string | undefined): boolean | number | string {
     }
     const parsedNumber = Number(value);
     return Number.isNaN(parsedNumber) ? value : parsedNumber;
+}
+
+function parsePositiveInt(value: string | undefined, fallback: number): number {
+    if (value == null || value.trim() === '') {
+        return fallback;
+    }
+    const parsed = Number(value);
+    return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
 }
 
 function getSuperadminCredentials():

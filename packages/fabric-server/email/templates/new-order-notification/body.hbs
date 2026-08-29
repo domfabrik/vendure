@@ -8,29 +8,44 @@
             border-bottom: 1px solid #e5e7eb; padding-bottom: 16px; margin-bottom: 16px; } .order-line-title {
             font-size: 16px; font-weight: 700; } .order-line-meta { color: #4b5563; margin-top: 6px; }
             .order-line-quantity { margin-top: 6px; } .order-line-price { margin-top: 6px; font-weight: 700; }
-            .order-total { margin-top: 8px; }
+            .order-total { margin-top: 8px; } .header-summary { font-size: 16px; line-height: 1.5;
+            font-weight: 700; } .header-technical { font-size: 11px; line-height: 1.35; } .order-code {
+            overflow-wrap: anywhere; word-break: break-all; font-size: 11px; }
         </mj-style>
     </mj-head>
     <mj-body background-color='#f3f4f6'>
         <mj-section background-color='#111827' padding='24px'>
-            <mj-column>
+            <mj-column width='65%'>
                 <mj-text color='#ffffff' font-size='24px' font-weight='700'>
                     Новый заказ
-                    {{order.code}}
                 </mj-text>
-                <mj-text color='#d1d5db' font-size='14px'>
-                    Создан
-                    {{display.createdAt}}
+                <mj-text
+                    css-class='header-summary'
+                    color='#ffffff'
+                    font-size='16px'
+                    font-weight='700'
+                    padding-top='0'
+                >
+                    <strong>Создан:</strong>
+                    {{display.createdAt}}<br />
+                    <strong>Итого:</strong>
+                    {{display.totals.totalWithTax}}<br />
+                    <strong>Позиций:</strong>
+                    {{order.totalQuantity}}
                 </mj-text>
             </mj-column>
-            <mj-column>
-                <mj-text align='right' color='#ffffff' font-size='14px'>
-                    <span class='meta-label'>Статус:</span>
-                    {{order.state}}<br />
-                    <span class='meta-label'>Итого:</span>
-                    {{display.totals.totalWithTax}}<br />
-                    <span class='meta-label'>Позиций:</span>
-                    {{order.totalQuantity}}
+            <mj-column width='35%'>
+                <mj-text
+                    css-class='header-technical'
+                    align='right'
+                    color='#d1d5db'
+                    font-size='11px'
+                    padding-top='8px'
+                >
+                    <span class='meta-label'>Номер заказа:</span><br />
+                    <span class='order-code'>{{order.code}}</span><br />
+                    <span class='meta-label'>Статус:</span><br />
+                    <span>{{order.state}}</span>
                 </mj-text>
             </mj-column>
         </mj-section>
@@ -74,65 +89,30 @@
         </mj-section>
 
         <mj-section>
-            <mj-column width='50%' css-class='card' padding='20px'>
-                <mj-text css-class='section-title'>Адрес доставки</mj-text>
-                <mj-text>
-                    {{#with order.shippingAddress}}
-                        {{#if fullName}}<strong>{{fullName}}</strong><br />{{/if}}
-                        {{#if company}}{{company}}<br />{{/if}}
-                        {{#if streetLine1}}{{streetLine1}}<br />{{/if}}
-                        {{#if streetLine2}}{{streetLine2}}<br />{{/if}}
-                        {{#if city}}{{city}}<br />{{/if}}
-                        {{#if province}}{{province}}<br />{{/if}}
-                        {{#if postalCode}}{{postalCode}}<br />{{/if}}
-                        {{#if country}}{{country}}<br />{{/if}}
-                        {{#if phoneNumber}}{{phoneNumber}}{{/if}}
-                    {{/with}}
-                </mj-text>
-            </mj-column>
-            <mj-column width='50%' css-class='card' padding='20px'>
-                <mj-text css-class='section-title'>Платёжный адрес</mj-text>
-                <mj-text>
-                    {{#with order.billingAddress}}
-                        {{#if fullName}}<strong>{{fullName}}</strong><br />{{/if}}
-                        {{#if company}}{{company}}<br />{{/if}}
-                        {{#if streetLine1}}{{streetLine1}}<br />{{/if}}
-                        {{#if streetLine2}}{{streetLine2}}<br />{{/if}}
-                        {{#if city}}{{city}}<br />{{/if}}
-                        {{#if province}}{{province}}<br />{{/if}}
-                        {{#if postalCode}}{{postalCode}}<br />{{/if}}
-                        {{#if country}}{{country}}<br />{{/if}}
-                        {{#if phoneNumber}}{{phoneNumber}}{{/if}}
-                    {{/with}}
-                </mj-text>
-            </mj-column>
-        </mj-section>
-
-        <mj-section>
             <mj-column css-class='card' padding='20px'>
                 <mj-text css-class='section-title'>Состав заказа</mj-text>
                 {{#each display.lines}}
                     <mj-text css-class='order-line'>
                         <div class='order-line-title'>Позиция
                             {{position}}
-                            · SKU:
-                            {{sku}}
                             ·
-                            {{#if productName}}{{productName}}{{else}}-{{/if}}</div>
+                            {{#if productUrl}}
+                                <a
+                                    href='{{productUrl}}'
+                                    style='color:#2563eb;text-decoration:underline;'
+                                >{{productName}}</a>
+                            {{else}}
+                                {{productName}}
+                            {{/if}}
+                        </div>
                         <div class='order-line-meta'>
                             Вариант:
                             {{productVariantName}}
-                            {{#if productUrl}}
-                                ·
-                                <a href='{{productUrl}}'>→ Открыть товар</a>
-                            {{/if}}
                         </div>
                         <div class='order-line-quantity'>Количество: {{quantity}} шт.</div>
                         <div class='order-line-price'>Цена в магазине: {{discountedUnitPriceWithTax}}</div>
                     </mj-text>
                 {{/each}}
-                <mj-text css-class='order-total'><strong>Подытог:</strong>
-                    {{display.totals.subTotalWithTax}}</mj-text>
                 {{#each display.shippingLines}}
                     <mj-text css-class='order-total'>Доставка{{#if name}} ({{name}}){{/if}}:
                         {{priceWithTax}}</mj-text>
