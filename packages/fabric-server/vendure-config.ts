@@ -31,6 +31,8 @@ const storefrontOrigins = (process.env.STOREFRONT_ORIGIN ?? '')
 
 const logLevel = process.env.LOG_LEVEL === 'debug' ? LogLevel.Debug : LogLevel.Info;
 const assetUploadDir = process.env.VENDURE_ASSET_UPLOAD_DIR ?? path.join(process.cwd(), 'var/assets');
+const publicUrl = process.env.VENDURE_PUBLIC_URL?.trim().replace(/\/+$/, '');
+const assetUrlPrefix = publicUrl ? `${publicUrl}/assets/` : undefined;
 const dashboardAppDir = path.join(process.cwd(), 'packages/fabric-server/dashboard/dist');
 const emailTemplateDir = path.join(process.cwd(), 'packages/fabric-server/email/templates');
 const superadminCredentials = getSuperadminCredentials();
@@ -99,6 +101,7 @@ export const fabricServerConfig: VendureConfig = {
         AssetServerPlugin.init({
             route: 'assets',
             assetUploadDir,
+            assetUrlPrefix,
         }),
         DashboardPlugin.init({
             route: 'admin-dashboard',
