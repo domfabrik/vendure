@@ -17,6 +17,7 @@ import { aridaCatalogCustomFields } from './catalog/custom-fields';
 import { CatalogPricingPlugin } from './catalog/catalog-pricing.plugin';
 import { OrderEmailHistoryPlugin } from './email/email-history.plugin';
 import { createNewOrderNotificationHandler } from './email/new-order-notification-handler';
+import { LeadOrderPlugin } from './lead/lead-order.plugin';
 
 class ExactStockDisplayStrategy {
     getStockLevel(_ctx: unknown, _productVariant: unknown, saleableStockLevel: number): string {
@@ -117,6 +118,7 @@ export const fabricServerConfig: VendureConfig = {
             concurrency: jobQueueConcurrency,
         }),
         OrderEmailHistoryPlugin,
+        LeadOrderPlugin,
         ...getEmailPlugins(),
         ...(process.env.VENDURE_ENABLE_SCHEDULER === 'true' ? [DefaultSchedulerPlugin.init({})] : []),
     ],
