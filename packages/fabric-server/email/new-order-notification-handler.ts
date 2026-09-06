@@ -60,17 +60,22 @@ export function createNewOrderNotificationHandler(primaryRecipient: string, ccRe
         }));
 }
 
-export function toDisplayOrder(order: OrderEvent['order'], storefrontOrigin: string | null = null) {
+export function toDisplayOrder(
+    order: OrderEvent['order'],
+    storefrontOrigin: string | null = null,
+    currencyCode = ORDER_NOTIFICATION_CURRENCY,
+) {
+    const money = (value: number) => formatMoneyValue(value, currencyCode);
     return {
         locale: ORDER_NOTIFICATION_LOCALE,
-        currencyCode: ORDER_NOTIFICATION_CURRENCY,
+        currencyCode,
         orderPlacedAt: formatDateTime(order.orderPlacedAt),
         createdAt: formatDateTime(order.createdAt),
         updatedAt: formatDateTime(order.updatedAt),
         totals: {
-            subTotalWithTax: formatMoneyValue(order.subTotalWithTax),
-            totalWithTax: formatMoneyValue(order.totalWithTax),
-            shipping: formatMoneyValue(order.shippingWithTax),
+            subTotalWithTax: money(order.subTotalWithTax),
+            totalWithTax: money(order.totalWithTax),
+            shipping: money(order.shippingWithTax),
         },
         lines: (order.lines ?? []).map((line, index) => {
             const productVariant = line.productVariant;
@@ -88,28 +93,26 @@ export function toDisplayOrder(order: OrderEvent['order'], storefrontOrigin: str
                 ),
                 productUrl: getProductUrl(storefrontOrigin, productSlug),
                 quantity: line.quantity,
-                discountedUnitPriceWithTax: formatMoneyValue(line.discountedUnitPriceWithTax),
-                discountedLinePriceWithTax: formatMoneyValue(line.discountedLinePriceWithTax),
+                discountedUnitPriceWithTax: money(line.discountedUnitPriceWithTax),
+                discountedLinePriceWithTax: money(line.discountedLinePriceWithTax),
             };
         }),
         shippingLines: (order.shippingLines ?? []).map(line => ({
             name: line.shippingMethod?.name ?? null,
-            priceWithTax: formatMoneyValue(line.priceWithTax),
+            priceWithTax: money(line.priceWithTax),
         })),
         surcharges: (order.surcharges ?? []).map(surcharge => ({
             description: surcharge.description,
-            priceWithTax: formatMoneyValue(
-                (surcharge as { priceWithTax?: number }).priceWithTax ?? surcharge.price,
-            ),
+            priceWithTax: money((surcharge as { priceWithTax?: number }).priceWithTax ?? surcharge.price),
         })),
         discounts: (order.discounts ?? []).map(discount => ({
             description: discount.description,
-            amountWithTax: formatMoneyValue(discount.amountWithTax),
+            amountWithTax: money(discount.amountWithTax),
         })),
         payments: (order.payments ?? []).map(payment => ({
             method: payment.method,
             state: payment.state,
-            amount: formatMoneyValue(payment.amount),
+            amount: money(payment.amount),
             transactionId: payment.transactionId ?? null,
             createdAt: formatDateTime(payment.createdAt),
             updatedAt: formatDateTime(payment.updatedAt),
@@ -117,10 +120,10 @@ export function toDisplayOrder(order: OrderEvent['order'], storefrontOrigin: str
     };
 }
 
-function formatMoneyValue(value: number): string {
+function formatMoneyValue(value: number, currency = ORDER_NOTIFICATION_CURRENCY): string {
     return new Intl.NumberFormat(ORDER_NOTIFICATION_LOCALE, {
         style: 'currency',
-        currency: ORDER_NOTIFICATION_CURRENCY,
+        currency,
         currencyDisplay: 'symbol',
         minimumFractionDigits: 0,
         maximumFractionDigits: 2,
