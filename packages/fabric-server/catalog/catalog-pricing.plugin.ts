@@ -3,6 +3,7 @@ import { Parent, ResolveField, Resolver } from '@nestjs/graphql';
 import { ID } from '@vendure/common/lib/shared-types';
 import {
     Ctx,
+    CurrencyCode,
     PluginCommonModule,
     ProductVariant,
     ProductVariantService,
@@ -24,7 +25,7 @@ type SearchResultParent = {
 
 type CatalogChosenOffer = {
     productVariantId: ID | string;
-    currencyCode: string;
+    currencyCode: CurrencyCode;
     priceWithTax: number;
     basePriceWithTax: number;
     discountPercent: number;
