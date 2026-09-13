@@ -1,15 +1,17 @@
-import { buildSchema, extendSchema, getNamedType, isObjectType, parse, print } from 'graphql';
-import { describe, expect, it } from 'vitest';
-
 import {
+    ProductVariant,
     ProductVariantService,
     RequestContext,
     RequestContextCacheService,
     TransactionalConnection,
 } from '@vendure/core';
+import { buildSchema, extendSchema, getNamedType, isObjectType, parse, print } from 'graphql';
+import { describe, expect, it } from 'vitest';
+
 import {
     catalogPricingApiExtensions,
     CatalogPricingService,
+    ProductVariantPricingResolver,
     SearchResultPricingResolver,
 } from './catalog-pricing.plugin';
 
@@ -18,6 +20,7 @@ type FixtureVariant = {
     price: number;
     priceWithTax: number;
     currencyCode?: string;
+    taxRateApplied?: { netPriceOf(grossPrice: number): number };
     saleableStockLevel?: number;
     customFields?: { discountPercent?: number | null; oldPrice?: number | null };
     product?: { enabled: boolean; featuredAsset?: { id: string; preview: string } | null };
@@ -37,6 +40,143 @@ describe('CatalogPricingPlugin chosenOffer', () => {
             basePriceWithTax: 37_500,
             discountPercent: 20,
         });
+    });
+
+    it('returns the explicit whole-ruble source base instead of reconstructing it from a floored price', async () => {
+        const productVariant = variant('cheap', {
+            price: 60_000,
+            priceWithTax: 64_900,
+            oldPrice: 999,
+            discountPercent: 35,
+        });
+        const resolver = makeProductVariantResolver(productVariant, 20);
+
+        await expect(
+            resolver.basePriceWithTax(ctx(), productVariant as unknown as ProductVariant),
+        ).resolves.toBe(99_900);
+        await expect(resolver.basePrice(ctx(), productVariant as unknown as ProductVariant)).resolves.toBe(
+            83_250,
+        );
+    });
+
+    it('uses the stored discount for the badge even when floor changes observed savings', async () => {
+        const productVariant = variant('small', {
+            price: 1_200,
+            priceWithTax: 1_200,
+            oldPrice: 19,
+            discountPercent: 35,
+        });
+        const service = makePricingService([productVariant]);
+
+        await expect(
+            service.getProductVariantDiscountPercent(ctx(), productVariant as unknown as ProductVariant),
+        ).resolves.toBe(35);
+    });
+
+    it.each([
+        ['missing badge', undefined],
+        ['invalid badge', 100],
+    ])('does not use an oldPrice below effective price with a %s', async (_label, discountPercent) => {
+        const productVariant = variant('below-effective', {
+            price: 60_000,
+            priceWithTax: 64_900,
+            oldPrice: 600,
+            discountPercent,
+        });
+
+        await expect(
+            makeProductVariantResolver(productVariant, 20).basePriceWithTax(
+                ctx(),
+                productVariant as unknown as ProductVariant,
+            ),
+        ).resolves.toBe(64_900);
+    });
+
+    it('converts explicit gross base to net using the hydrated variant tax rate, including zero tax', async () => {
+        const productVariant = variant('taxed', {
+            price: 78_000,
+            priceWithTax: 78_000,
+            oldPrice: 1_200,
+            discountPercent: 35,
+        });
+
+        await expect(
+            makeProductVariantResolver(productVariant, 20).basePrice(
+                ctx(),
+                productVariant as unknown as ProductVariant,
+            ),
+        ).resolves.toBe(100_000);
+        await expect(
+            makeProductVariantResolver(productVariant, 0).basePrice(
+                ctx(),
+                productVariant as unknown as ProductVariant,
+            ),
+        ).resolves.toBe(120_000);
+    });
+
+    it.each([
+        ['null', null, 'RUB'],
+        ['zero', 0, 'RUB'],
+        ['negative', -1, 'RUB'],
+        ['fractional', 999.5, 'RUB'],
+        ['NaN', Number.NaN, 'RUB'],
+        ['unsafe integer', Number.MAX_SAFE_INTEGER + 1, 'RUB'],
+        ['overflow after kopeks conversion', Number.MAX_SAFE_INTEGER, 'RUB'],
+        ['base does not exceed the discounted offer', 649, 'RUB'],
+        ['non-RUB', 999, 'USD'],
+    ])(
+        'uses the compatibility fallback for invalid explicit base (%s)',
+        async (_label, oldPrice, currencyCode) => {
+            const productVariant = variant('fallback', {
+                price: 60_000,
+                priceWithTax: 64_900,
+                oldPrice,
+                discountPercent: 35,
+                currencyCode,
+            });
+            const resolver = makeProductVariantResolver(productVariant, 20);
+
+            await expect(
+                resolver.basePriceWithTax(ctx(), productVariant as unknown as ProductVariant),
+            ).resolves.toBe(99_846);
+        },
+    );
+
+    it('keeps price, exact old-price base and discount on the same cheapest chosen offer', async () => {
+        const service = makePricingService([
+            variant('cheap', {
+                priceWithTax: 64_900,
+                oldPrice: 999,
+                discountPercent: 35,
+            }),
+            variant('expensive', {
+                priceWithTax: 65_000,
+                oldPrice: 1_000,
+                discountPercent: 35,
+            }),
+        ]);
+
+        await expect(service.getChosenOffer(ctx(), searchResult())).resolves.toMatchObject({
+            productVariantId: 'cheap',
+            priceWithTax: 64_900,
+            basePriceWithTax: 99_900,
+            discountPercent: 35,
+        });
+    });
+
+    it('does not expose oldPrice as Money outside a RUB request context', async () => {
+        const productVariant = variant('foreign', {
+            price: 60_000,
+            priceWithTax: 64_900,
+            oldPrice: 999,
+            discountPercent: 35,
+            currencyCode: 'USD',
+        });
+        const resolver = makeProductVariantResolver(productVariant, 20);
+
+        await expect(
+            resolver.basePriceWithTax(ctx('USD'), productVariant as unknown as ProductVariant),
+        ).resolves.toBe(99_846);
     });
 
     it('breaks equal-price ties by larger discount and then a stable variant ID', async () => {
@@ -135,10 +275,10 @@ describe('CatalogPricingPlugin chosenOffer', () => {
             type ProductVariantCustomFields { discountPercent: Int }
         `);
         const schema = extendSchema(baseSchema, parse(print(catalogPricingApiExtensions)));
-        const searchResult = schema.getType('SearchResult');
-        expect(isObjectType(searchResult)).toBe(true);
-        if (!isObjectType(searchResult)) return;
-        const chosenOffer = getNamedType(searchResult.getFields().chosenOffer.type);
+        const searchResultType = schema.getType('SearchResult');
+        expect(isObjectType(searchResultType)).toBe(true);
+        if (!isObjectType(searchResultType)) return;
+        const chosenOffer = getNamedType(searchResultType.getFields().chosenOffer.type);
         expect(isObjectType(chosenOffer)).toBe(true);
         if (!isObjectType(chosenOffer)) return;
         expect(Object.keys(chosenOffer.getFields())).toEqual([
@@ -168,6 +308,7 @@ function variant(
         currencyCode?: string;
         saleableStockLevel?: number;
         discountPercent?: number;
+        oldPrice?: number | null;
         productEnabled?: boolean;
     } = {},
 ): FixtureVariant {
@@ -177,7 +318,11 @@ function variant(
         priceWithTax: overrides.priceWithTax ?? 30_000,
         currencyCode: overrides.currencyCode ?? 'RUB',
         saleableStockLevel: overrides.saleableStockLevel ?? 1,
-        customFields: { discountPercent: overrides.discountPercent ?? 0 },
+        customFields: {
+            discountPercent: overrides.discountPercent ?? 0,
+            oldPrice: overrides.oldPrice,
+        },
+        taxRateApplied: { netPriceOf: grossPrice => Math.round(grossPrice / 1.2) },
         product: {
             enabled: overrides.productEnabled ?? true,
             featuredAsset: { id: `product-${id}`, preview: `product-${id}.jpg` },
@@ -188,7 +333,7 @@ function variant(
 
 function makePricingService(variants: FixtureVariant[], counter = { calls: 0 }): CatalogPricingService {
     const productVariantService = {
-        getVariantsByProductId: async (
+        getVariantsByProductId: (
             _ctx: RequestContext,
             _productId: string,
             options: { skip?: number; take?: number },
@@ -198,12 +343,12 @@ function makePricingService(variants: FixtureVariant[], counter = { calls: 0 }):
             const take = options.take ?? 100;
             return { items: variants.slice(skip, skip + take), totalItems: variants.length };
         },
-        hydratePriceFields: async (
+        hydratePriceFields: (
             _ctx: RequestContext,
             item: FixtureVariant,
-            field: 'price' | 'priceWithTax' | 'currencyCode',
+            field: 'price' | 'priceWithTax' | 'currencyCode' | 'taxRateApplied',
         ) => item[field],
-        getSaleableStockLevel: async (_ctx: RequestContext, item: FixtureVariant) => item.saleableStockLevel,
+        getSaleableStockLevel: (_ctx: RequestContext, item: FixtureVariant) => item.saleableStockLevel,
     } as unknown as ProductVariantService;
     return new CatalogPricingService(
         {} as TransactionalConnection,
@@ -212,8 +357,29 @@ function makePricingService(variants: FixtureVariant[], counter = { calls: 0 }):
     );
 }
 
-function ctx(): RequestContext {
-    return { channelId: 'channel-1', currencyCode: 'RUB' } as RequestContext;
+function makeProductVariantResolver(item: FixtureVariant, taxRate: number): ProductVariantPricingResolver {
+    const productVariantService = {
+        hydratePriceFields: (
+            _ctx: RequestContext,
+            variantItem: FixtureVariant,
+            field: 'price' | 'priceWithTax' | 'currencyCode' | 'taxRateApplied',
+        ) => {
+            if (field === 'taxRateApplied') {
+                return { netPriceOf: (grossPrice: number) => Math.round(grossPrice / (1 + taxRate / 100)) };
+            }
+            return variantItem[field];
+        },
+    } as unknown as ProductVariantService;
+    const pricingService = new CatalogPricingService(
+        {} as TransactionalConnection,
+        productVariantService,
+        new RequestContextCacheService(),
+    );
+    return new ProductVariantPricingResolver(pricingService, productVariantService);
+}
+
+function ctx(currencyCode = 'RUB'): RequestContext {
+    return { channelId: 'channel-1', currencyCode } as RequestContext;
 }
 
 function searchResult() {

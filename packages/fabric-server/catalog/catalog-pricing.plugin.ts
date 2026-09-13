@@ -38,6 +38,34 @@ type VariantCustomFields = {
 };
 
 export class CatalogPricingMath {
+    static explicitGrossBasePrice(
+        oldPrice: unknown,
+        effectivePriceWithTax: number,
+        currencyCode: unknown,
+        discountPercent: number,
+    ): number | null {
+        if (currencyCode !== CurrencyCode.RUB) {
+            return null;
+        }
+        if (typeof oldPrice !== 'number' || !Number.isSafeInteger(oldPrice) || oldPrice <= 0) {
+            return null;
+        }
+        const grossBasePrice = oldPrice * 100;
+        if (!Number.isSafeInteger(grossBasePrice)) {
+            return null;
+        }
+        if (!Number.isSafeInteger(effectivePriceWithTax) || effectivePriceWithTax <= 0) {
+            return null;
+        }
+        if (
+            grossBasePrice < effectivePriceWithTax ||
+            (discountPercent > 0 && grossBasePrice === effectivePriceWithTax)
+        ) {
+            return null;
+        }
+        return grossBasePrice;
+    }
+
     static toDiscountPercent(value: unknown): number | null {
         if (typeof value !== 'number' || !Number.isInteger(value) || value < 0 || value > 99) {
             return null;
@@ -138,7 +166,7 @@ export class CatalogPricingService {
         do {
             const page = await this.productVariantService.getVariantsByProductId(
                 ctx,
-                productId as ID,
+                productId,
                 { skip, take: pageSize },
                 ['featuredAsset', 'product', 'product.featuredAsset'] as any,
             );
@@ -146,11 +174,7 @@ export class CatalogPricingService {
             totalItems = page.totalItems;
             skip += page.items.length;
             pageCount += 1;
-        } while (
-            skip < totalItems &&
-            pageCount < Math.ceil(totalItems / pageSize) &&
-            skip > 0
-        );
+        } while (skip < totalItems && pageCount < Math.ceil(totalItems / pageSize) && skip > 0);
         const candidates = await Promise.all(
             variants.map(async variant => {
                 if (variant.product?.enabled === false) {
@@ -171,16 +195,21 @@ export class CatalogPricingService {
                     ) {
                         return null;
                     }
-                    const discountPercent = this.resolveDiscountPercent(
-                        variant.customFields as VariantCustomFields,
-                        price,
+                    const customFields = (variant.customFields ?? {}) as VariantCustomFields;
+                    const discountPercent = this.resolveDiscountPercent(customFields, price);
+                    const explicitGrossBase = CatalogPricingMath.explicitGrossBasePrice(
+                        customFields.oldPrice,
+                        priceWithTax,
+                        ctx.currencyCode,
+                        discountPercent,
                     );
                     const productAsset = variant.featuredAsset ?? variant.product?.featuredAsset ?? null;
                     return {
                         productVariantId: variant.id,
                         currencyCode,
                         priceWithTax,
-                        basePriceWithTax: CatalogPricingMath.basePrice(priceWithTax, discountPercent),
+                        basePriceWithTax:
+                            explicitGrossBase ?? CatalogPricingMath.basePrice(priceWithTax, discountPercent),
                         discountPercent,
                         productAsset: productAsset
                             ? { id: productAsset.id, preview: productAsset.preview }
@@ -222,7 +251,7 @@ export class CatalogPricingService {
         variantId: ID | string,
     ): Promise<VariantCustomFields> {
         const variant = await this.connection.getRepository(ctx, ProductVariant).findOne({
-            where: { id: variantId as ID },
+            where: { id: variantId },
         });
         return (variant?.customFields as VariantCustomFields | undefined) ?? {};
     }
@@ -259,12 +288,26 @@ export class ProductVariantPricingResolver {
             ctx,
             productVariant,
         );
-        const effectivePrice = await this.productVariantService.hydratePriceFields(
-            ctx,
-            productVariant,
-            'price',
-        );
-        return CatalogPricingMath.basePrice(effectivePrice, discountPercent);
+        const [effectivePrice, effectivePriceWithTax, currencyCode, taxRateApplied, customFields] =
+            await Promise.all([
+                this.productVariantService.hydratePriceFields(ctx, productVariant, 'price'),
+                this.productVariantService.hydratePriceFields(ctx, productVariant, 'priceWithTax'),
+                this.productVariantService.hydratePriceFields(ctx, productVariant, 'currencyCode'),
+                this.productVariantService.hydratePriceFields(ctx, productVariant, 'taxRateApplied'),
+                this.pricingService.getVariantCustomFields(ctx, productVariant),
+            ]);
+        const explicitGrossBase =
+            currencyCode === ctx.currencyCode
+                ? CatalogPricingMath.explicitGrossBasePrice(
+                      customFields.oldPrice,
+                      effectivePriceWithTax,
+                      ctx.currencyCode,
+                      discountPercent,
+                  )
+                : null;
+        return explicitGrossBase == null
+            ? CatalogPricingMath.basePrice(effectivePrice, discountPercent)
+            : Math.round(taxRateApplied.netPriceOf(explicitGrossBase));
     }
 
     @ResolveField()
@@ -276,12 +319,21 @@ export class ProductVariantPricingResolver {
             ctx,
             productVariant,
         );
-        const effectivePrice = await this.productVariantService.hydratePriceFields(
-            ctx,
-            productVariant,
-            'priceWithTax',
-        );
-        return CatalogPricingMath.basePrice(effectivePrice, discountPercent);
+        const [effectivePriceWithTax, currencyCode, customFields] = await Promise.all([
+            this.productVariantService.hydratePriceFields(ctx, productVariant, 'priceWithTax'),
+            this.productVariantService.hydratePriceFields(ctx, productVariant, 'currencyCode'),
+            this.pricingService.getVariantCustomFields(ctx, productVariant),
+        ]);
+        const explicitGrossBase =
+            currencyCode === ctx.currencyCode
+                ? CatalogPricingMath.explicitGrossBasePrice(
+                      customFields.oldPrice,
+                      effectivePriceWithTax,
+                      ctx.currencyCode,
+                      discountPercent,
+                  )
+                : null;
+        return explicitGrossBase ?? CatalogPricingMath.basePrice(effectivePriceWithTax, discountPercent);
     }
 }
 
