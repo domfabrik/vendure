@@ -46,6 +46,7 @@ type FixtureCalls = {
     repositoryAccesses: number;
     builders: { item: number; count: number; facet: number };
     executions: { item: number; count: number; facet: number };
+    predicates: string[];
     limits: number[];
     offsets: number[];
     orderBy: Array<[string, string]>;
@@ -56,6 +57,7 @@ function createFixture() {
         repositoryAccesses: 0,
         builders: { item: 0, count: 0, facet: 0 },
         executions: { item: 0, count: 0, facet: 0 },
+        predicates: [],
         limits: [], offsets: [], orderBy: [],
     };
     let countBuilder: ReturnType<typeof createQueryBuilder>;
@@ -71,6 +73,9 @@ function createFixture() {
         const applyWhere = (condition?: any, parameters?: Record<string, any>) => {
             if (condition?.whereFactory) {
                 condition.whereFactory(queryBuilder);
+            }
+            if (typeof condition === 'string') {
+                calls.predicates.push(condition);
             }
             Object.assign(state.parameters, parameters);
             return queryBuilder;
@@ -290,6 +295,20 @@ describe('PostgresSearchStrategy.getSearchResults', () => {
             ['"si_price"', 'DESC'],
             ['"si_productVariantId"', 'ASC'],
         ]);
+    });
+
+    it('uses the expression-GIN-compatible collection slug predicate', async () => {
+        const fixture = createFixture();
+
+        await fixture.strategy.getSearchResults(
+            createContext('shop'),
+            { collectionSlug: 'chairs', take: 10 } as any,
+            true,
+        );
+
+        expect(fixture.calls.predicates).toContain(
+            "string_to_array(si.collectionSlugs, ',') @> ARRAY[:collectionSlug]::text[]",
+        );
     });
 });
 

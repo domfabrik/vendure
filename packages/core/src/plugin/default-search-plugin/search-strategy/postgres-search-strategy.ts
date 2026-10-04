@@ -254,7 +254,7 @@ export class PostgresSearchStrategy implements SearchStrategy {
             });
         }
         if (collectionSlug) {
-            qb.andWhere(":collectionSlug::varchar = ANY (string_to_array(si.collectionSlugs, ','))", {
+            qb.andWhere("string_to_array(si.collectionSlugs, ',') @> ARRAY[:collectionSlug]::text[]", {
                 collectionSlug,
             });
         }
