@@ -300,6 +300,106 @@ describe('CatalogPricingPlugin chosenOffer', () => {
     });
 });
 
+describe('CatalogPricingService request-scoped custom field lookups', () => {
+    it('shares one Shop lookup between parallel search price fields', async () => {
+        const repository = controlledVariantRepository({ one: { discountPercent: 20 } });
+        const service = makeCustomFieldsPricingService(repository);
+        const resolver = new SearchResultPricingResolver(service);
+        const request = ctx('RUB', 'shop');
+
+        const [discountPercent, basePriceWithTax] = await Promise.all([
+            resolver.discountPercent(request, searchResultParent('one')),
+            resolver.basePriceWithTax(request, searchResultParent('one')),
+        ]);
+
+        expect(discountPercent).toBe(20);
+        expect(basePriceWithTax).toEqual({ min: 37_500, max: 45_000 });
+        expect(repository.calls).toBe(1);
+    });
+
+    it('reduces two sibling lookups per ID to one for 24 distinct Shop IDs', async () => {
+        const fields = Object.fromEntries(
+            Array.from({ length: 24 }, (_, index) => [`variant-${index + 1}`, { discountPercent: index }]),
+        );
+        const repository = controlledVariantRepository(fields);
+        const service = makeCustomFieldsPricingService(repository);
+        const request = ctx('RUB', 'shop');
+
+        await Promise.all(
+            Object.keys(fields).flatMap(id => [
+                service.getSearchResultDiscountPercent(request, searchResultParent(id)),
+                service.getSearchResultDiscountPercent(request, searchResultParent(id)),
+            ]),
+        );
+
+        expect(repository.calls).toBe(24);
+    });
+
+    it('isolates contexts and IDs while allowing a later context to see fresh fields', async () => {
+        const fields: Record<string, { discountPercent?: number | null }> = {
+            one: { discountPercent: 10 },
+            two: { discountPercent: 20 },
+        };
+        const repository = controlledVariantRepository(fields);
+        const service = makeCustomFieldsPricingService(repository);
+        const firstRequest = ctx('RUB', 'shop');
+        const secondRequest = ctx('RUB', 'shop');
+
+        await expect(service.getSearchResultDiscountPercent(firstRequest, searchResultParent('one'))).resolves.toBe(
+            10,
+        );
+        await expect(service.getSearchResultDiscountPercent(firstRequest, searchResultParent('two'))).resolves.toBe(
+            20,
+        );
+        fields.one = { discountPercent: 35 };
+        await expect(service.getSearchResultDiscountPercent(firstRequest, searchResultParent('one'))).resolves.toBe(
+            10,
+        );
+        await expect(service.getSearchResultDiscountPercent(secondRequest, searchResultParent('one'))).resolves.toBe(
+            35,
+        );
+        expect(repository.calls).toBe(3);
+    });
+
+    it('preserves missing and invalid custom fields and shares a rejected lookup without retrying', async () => {
+        const repository = controlledVariantRepository({
+            missing: undefined,
+            invalid: { discountPercent: 100, oldPrice: 600 },
+            rejected: new Error('controlled lookup failure'),
+        });
+        const service = makeCustomFieldsPricingService(repository);
+        const request = ctx('RUB', 'shop');
+
+        await expect(service.getSearchResultDiscountPercent(request, searchResultParent('missing'))).resolves.toBe(0);
+        await expect(service.getSearchResultDiscountPercent(request, searchResultParent('invalid'))).resolves.toBe(0);
+        const failures = await Promise.allSettled([
+            service.getSearchResultDiscountPercent(request, searchResultParent('rejected')),
+            service.getSearchResultDiscountPercent(request, searchResultParent('rejected')),
+        ]);
+        expect(failures.every(result => result.status === 'rejected')).toBe(true);
+        expect(repository.calls).toBe(3);
+
+        const nextRequest = ctx('RUB', 'shop');
+        await expect(service.getSearchResultDiscountPercent(nextRequest, searchResultParent('rejected'))).rejects.toThrow(
+            'controlled lookup failure',
+        );
+        expect(repository.calls).toBe(4);
+    });
+
+    it('keeps Admin lookups uncached', async () => {
+        const repository = controlledVariantRepository({ one: { discountPercent: 20 } });
+        const service = makeCustomFieldsPricingService(repository);
+        const request = ctx('RUB', 'admin');
+
+        await Promise.all([
+            service.getSearchResultDiscountPercent(request, searchResultParent('one')),
+            service.getSearchResultDiscountPercent(request, searchResultParent('one')),
+        ]);
+
+        expect(repository.calls).toBe(2);
+    });
+});
+
 function variant(
     id: string,
     overrides: {
@@ -378,19 +478,52 @@ function makeProductVariantResolver(item: FixtureVariant, taxRate: number): Prod
     return new ProductVariantPricingResolver(pricingService, productVariantService);
 }
 
-function ctx(currencyCode = 'RUB'): RequestContext {
-    return { channelId: 'channel-1', currencyCode } as RequestContext;
+function ctx(currencyCode = 'RUB', apiType?: 'admin' | 'shop'): RequestContext {
+    return { channelId: 'channel-1', currencyCode, apiType } as RequestContext;
 }
 
 function searchResult() {
     return searchResultParent();
 }
 
-function searchResultParent() {
+function searchResultParent(productVariantId = 'legacy-variant') {
     return {
         productId: 'product-1',
-        productVariantId: 'legacy-variant',
+        productVariantId,
         price: { min: 30_000, max: 36_000 },
         priceWithTax: { min: 30_000, max: 36_000 },
     };
+}
+
+type ControlledRepository = {
+    calls: number;
+    findOne: (options: { where: { id: string } }) => Promise<unknown>;
+};
+
+function controlledVariantRepository(
+    fixtures: Record<string, { discountPercent?: number | null; oldPrice?: number | null } | undefined | Error>,
+): ControlledRepository {
+    const repository: ControlledRepository = {
+        calls: 0,
+        findOne(options) {
+            repository.calls += 1;
+            const fixture = fixtures[String(options.where.id)];
+            if (fixture instanceof Error) {
+                return Promise.reject(fixture);
+            }
+            return Promise.resolve(fixture === undefined ? undefined : { customFields: fixture });
+        },
+    };
+    return repository;
+}
+
+function makeCustomFieldsPricingService(repository: ControlledRepository): CatalogPricingService {
+    const productVariantService = {
+        hydratePriceFields: (_ctx: RequestContext, item: FixtureVariant, field: 'price') => item[field],
+    } as unknown as ProductVariantService;
+    return new CatalogPricingService(
+        { getRepository: () => repository } as unknown as TransactionalConnection,
+        productVariantService,
+        new RequestContextCacheService(),
+    );
 }

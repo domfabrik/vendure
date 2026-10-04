@@ -250,6 +250,19 @@ export class CatalogPricingService {
         ctx: RequestContext,
         variantId: ID | string,
     ): Promise<VariantCustomFields> {
+        if (ctx.apiType === 'shop') {
+            const cacheKey = `catalog-variant-custom-fields-${String(variantId)}`;
+            return this.requestContextCache.get(ctx, cacheKey, () =>
+                this.loadVariantCustomFieldsById(ctx, variantId),
+            );
+        }
+        return this.loadVariantCustomFieldsById(ctx, variantId);
+    }
+
+    private async loadVariantCustomFieldsById(
+        ctx: RequestContext,
+        variantId: ID | string,
+    ): Promise<VariantCustomFields> {
         const variant = await this.connection.getRepository(ctx, ProductVariant).findOne({
             where: { id: variantId },
         });
