@@ -32,9 +32,15 @@ type CatalogChosenOffer = {
     productAsset: { id: ID | string; preview: string } | null;
 };
 
+type CatalogOfferSummary = {
+    chosenOffer: CatalogChosenOffer | null;
+    priceNotSpecified: boolean;
+};
+
 type VariantCustomFields = {
     discountPercent?: number | null;
     oldPrice?: number | null;
+    priceNotSpecified?: boolean | null;
 };
 
 export class CatalogPricingMath {
@@ -148,16 +154,25 @@ export class CatalogPricingService {
         ctx: RequestContext,
         searchResult: SearchResultParent,
     ): Promise<CatalogChosenOffer | null> {
-        const cacheKey = `catalog-chosen-offer-${ctx.channelId}-${ctx.currencyCode}-${searchResult.productId}`;
-        return this.requestContextCache.get(ctx, cacheKey, () =>
-            this.findChosenOffer(ctx, searchResult.productId),
-        );
+        return (await this.getOfferSummary(ctx, searchResult.productId)).chosenOffer;
     }
 
-    private async findChosenOffer(
+    async getSearchResultPriceNotSpecified(
+        ctx: RequestContext,
+        searchResult: SearchResultParent,
+    ): Promise<boolean> {
+        return (await this.getOfferSummary(ctx, searchResult.productId)).priceNotSpecified;
+    }
+
+    private getOfferSummary(ctx: RequestContext, productId: ID | string): Promise<CatalogOfferSummary> {
+        const cacheKey = `catalog-offer-summary-${ctx.channelId}-${ctx.currencyCode}-${productId}`;
+        return this.requestContextCache.get(ctx, cacheKey, () => this.findOfferSummary(ctx, productId));
+    }
+
+    private async findOfferSummary(
         ctx: RequestContext,
         productId: ID | string,
-    ): Promise<CatalogChosenOffer | null> {
+    ): Promise<CatalogOfferSummary> {
         const variants: ProductVariant[] = [];
         const pageSize = 100;
         let skip = 0;
@@ -175,9 +190,20 @@ export class CatalogPricingService {
             skip += page.items.length;
             pageCount += 1;
         } while (skip < totalItems && pageCount < Math.ceil(totalItems / pageSize) && skip > 0);
+        const priceNotSpecified = variants.some(variant => {
+            if (variant.enabled === false || variant.product?.enabled === false) {
+                return false;
+            }
+            const customFields = (variant.customFields ?? {}) as VariantCustomFields;
+            return customFields.priceNotSpecified === true;
+        });
         const candidates = await Promise.all(
             variants.map(async variant => {
                 if (variant.product?.enabled === false) {
+                    return null;
+                }
+                const customFields = (variant.customFields ?? {}) as VariantCustomFields;
+                if (customFields.priceNotSpecified === true) {
                     return null;
                 }
                 try {
@@ -195,7 +221,6 @@ export class CatalogPricingService {
                     ) {
                         return null;
                     }
-                    const customFields = (variant.customFields ?? {}) as VariantCustomFields;
                     const discountPercent = this.resolveDiscountPercent(customFields, price);
                     const explicitGrossBase = CatalogPricingMath.explicitGrossBasePrice(
                         customFields.oldPrice,
@@ -233,7 +258,10 @@ export class CatalogPricingService {
             }
             return compareStableIds(left.productVariantId, right.productVariantId);
         });
-        return validCandidates[0] ?? null;
+        return {
+            chosenOffer: validCandidates[0] ?? null,
+            priceNotSpecified,
+        };
     }
 
     async getVariantCustomFields(
@@ -368,6 +396,14 @@ export class SearchResultPricingResolver {
     ): Promise<CatalogChosenOffer | null> {
         return this.pricingService.getChosenOffer(ctx, searchResult);
     }
+
+    @ResolveField()
+    async priceNotSpecified(
+        @Ctx() ctx: RequestContext,
+        @Parent() searchResult: SearchResultParent,
+    ): Promise<boolean> {
+        return this.pricingService.getSearchResultPriceNotSpecified(ctx, searchResult);
+    }
 }
 
 export const catalogPricingApiExtensions = gql`
@@ -381,6 +417,7 @@ export const catalogPricingApiExtensions = gql`
         basePrice: SearchResultPrice!
         basePriceWithTax: SearchResultPrice!
         chosenOffer: CatalogChosenOffer
+        priceNotSpecified: Boolean!
     }
 
     type CatalogChosenOffer {

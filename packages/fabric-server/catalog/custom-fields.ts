@@ -53,6 +53,7 @@ export const aridaCatalogCustomFields: CustomFields = {
     ProductVariant: [
         { name: 'sourceSkuId', type: 'string', nullable: true, public: false },
         { name: 'sourceVariantUrl', type: 'string', length: 1024, nullable: true, public: false },
+        { name: 'priceNotSpecified', type: 'boolean', nullable: true, public: true },
         { name: 'oldPrice', type: 'int', nullable: true, public: true },
         { name: 'discountPercent', type: 'int', nullable: true, public: true, min: 0, max: 99 },
         { name: 'finishLabel', type: 'string', nullable: true, public: true },

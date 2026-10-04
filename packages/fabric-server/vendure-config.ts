@@ -1,20 +1,23 @@
 import { AssetServerPlugin } from '@vendure/asset-server-plugin';
-import { DashboardPlugin } from '@vendure/dashboard/plugin';
 import {
     DefaultJobQueuePlugin,
     DefaultLogger,
+    defaultOrderProcess,
     DefaultSchedulerPlugin,
     DefaultSearchPlugin,
     dummyPaymentHandler,
     LogLevel,
     VendureConfig,
 } from '@vendure/core';
+import { DashboardPlugin } from '@vendure/dashboard/plugin';
 import { EmailPlugin, FileBasedTemplateLoader } from '@vendure/email-plugin';
 import 'dotenv/config';
 import path from 'path';
 
-import { aridaCatalogCustomFields } from './catalog/custom-fields';
 import { CatalogPricingPlugin } from './catalog/catalog-pricing.plugin';
+import { aridaCatalogCustomFields } from './catalog/custom-fields';
+import { PriceNotSpecifiedOrderInterceptor } from './catalog/price-not-specified-order.interceptor';
+import { PriceNotSpecifiedOrderProcess } from './catalog/price-not-specified-order.process';
 import { OrderEmailHistoryPlugin } from './email/email-history.plugin';
 import { createNewOrderNotificationHandler } from './email/new-order-notification-handler';
 import { LeadOrderPlugin } from './lead/lead-order.plugin';
@@ -92,6 +95,10 @@ export const fabricServerConfig: VendureConfig = {
     },
     catalogOptions: {
         stockDisplayStrategy: new ExactStockDisplayStrategy(),
+    },
+    orderOptions: {
+        orderInterceptors: [new PriceNotSpecifiedOrderInterceptor()],
+        process: [defaultOrderProcess, new PriceNotSpecifiedOrderProcess()],
     },
     customFields: aridaCatalogCustomFields,
     logger: new DefaultLogger({ level: logLevel }),

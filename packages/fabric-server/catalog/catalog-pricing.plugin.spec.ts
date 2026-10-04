@@ -17,12 +17,17 @@ import {
 
 type FixtureVariant = {
     id: string;
+    enabled?: boolean;
     price: number;
     priceWithTax: number;
     currencyCode?: string;
     taxRateApplied?: { netPriceOf(grossPrice: number): number };
     saleableStockLevel?: number;
-    customFields?: { discountPercent?: number | null; oldPrice?: number | null };
+    customFields?: {
+        discountPercent?: number | null;
+        oldPrice?: number | null;
+        priceNotSpecified?: boolean | null;
+    };
     product?: { enabled: boolean; featuredAsset?: { id: string; preview: string } | null };
     featuredAsset?: { id: string; preview: string } | null;
 };
@@ -237,6 +242,40 @@ describe('CatalogPricingPlugin chosenOffer', () => {
         await expect(service.getChosenOffer(ctx(), searchResult())).resolves.toBeNull();
     });
 
+    it('exposes a grouped missing-price flag when any active variant is marked', async () => {
+        const service = makePricingService([
+            variant('priced', { priceWithTax: 30_000, priceNotSpecified: false }),
+            variant('missing', { priceWithTax: 0, priceNotSpecified: true }),
+        ]);
+
+        await expect(service.getSearchResultPriceNotSpecified(ctx(), searchResult())).resolves.toBe(true);
+        await expect(service.getChosenOffer(ctx(), searchResult())).resolves.toMatchObject({
+            productVariantId: 'priced',
+            priceWithTax: 30_000,
+        });
+    });
+
+    it('treats null, false and disabled missing-price variants as ordinary grouped pricing', async () => {
+        const service = makePricingService([
+            variant('null', { priceNotSpecified: null }),
+            variant('false', { priceNotSpecified: false }),
+            variant('disabled-missing', { priceNotSpecified: true, variantEnabled: false }),
+        ]);
+
+        await expect(service.getSearchResultPriceNotSpecified(ctx(), searchResult())).resolves.toBe(false);
+    });
+
+    it('never chooses a marked variant even if it has a positive storage price', async () => {
+        const service = makePricingService([
+            variant('marked-cheapest', { priceWithTax: 1, priceNotSpecified: true }),
+            variant('priced', { priceWithTax: 30_000 }),
+        ]);
+
+        await expect(service.getChosenOffer(ctx(), searchResult())).resolves.toMatchObject({
+            productVariantId: 'priced',
+        });
+    });
+
     it('uses the request cache for a product without leaking to another request context', async () => {
         const counter = { calls: 0 };
         const service = makePricingService([variant('one', { priceWithTax: 30_000 })], counter);
@@ -249,6 +288,22 @@ describe('CatalogPricingPlugin chosenOffer', () => {
         expect(counter.calls).toBe(1);
         await service.getChosenOffer(ctx(), searchResult());
         expect(counter.calls).toBe(2);
+    });
+
+    it('shares one variant scan between chosen offer and grouped missing-price flag', async () => {
+        const counter = { calls: 0 };
+        const service = makePricingService(
+            [variant('priced', { priceWithTax: 30_000 }), variant('missing', { priceNotSpecified: true })],
+            counter,
+        );
+        const request = ctx();
+
+        await Promise.all([
+            service.getChosenOffer(request, searchResult()),
+            service.getSearchResultPriceNotSpecified(request, searchResult()),
+        ]);
+
+        expect(counter.calls).toBe(1);
     });
 
     it('paginates past the default list page to find a later purchasable offer', async () => {
@@ -278,6 +333,7 @@ describe('CatalogPricingPlugin chosenOffer', () => {
         const searchResultType = schema.getType('SearchResult');
         expect(isObjectType(searchResultType)).toBe(true);
         if (!isObjectType(searchResultType)) return;
+        expect(String(searchResultType.getFields().priceNotSpecified.type)).toBe('Boolean!');
         const chosenOffer = getNamedType(searchResultType.getFields().chosenOffer.type);
         expect(isObjectType(chosenOffer)).toBe(true);
         if (!isObjectType(chosenOffer)) return;
@@ -297,6 +353,7 @@ describe('CatalogPricingPlugin chosenOffer', () => {
             productVariantId: 'one',
             priceWithTax: 30_000,
         });
+        await expect(resolver.priceNotSpecified(ctx(), searchResultParent())).resolves.toBe(false);
     });
 });
 
@@ -310,10 +367,13 @@ function variant(
         discountPercent?: number;
         oldPrice?: number | null;
         productEnabled?: boolean;
+        priceNotSpecified?: boolean | null;
+        variantEnabled?: boolean;
     } = {},
 ): FixtureVariant {
     return {
         id,
+        enabled: overrides.variantEnabled ?? true,
         price: overrides.price ?? overrides.priceWithTax ?? 30_000,
         priceWithTax: overrides.priceWithTax ?? 30_000,
         currencyCode: overrides.currencyCode ?? 'RUB',
@@ -321,6 +381,7 @@ function variant(
         customFields: {
             discountPercent: overrides.discountPercent ?? 0,
             oldPrice: overrides.oldPrice,
+            priceNotSpecified: overrides.priceNotSpecified,
         },
         taxRateApplied: { netPriceOf: grossPrice => Math.round(grossPrice / 1.2) },
         product: {
