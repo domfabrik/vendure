@@ -84,6 +84,14 @@ export class PostgresSearchStrategy implements SearchStrategy {
         input: SearchInput,
         enabledOnly: boolean,
     ): Promise<SearchResult[]> {
+        // The Shop API uses an explicit take: 0 for facet-only searches. In
+        // that case the caller still needs totalItems and facet values, but
+        // there are no item rows to fetch. Keep the guard scoped to Shop and
+        // an explicit zero so the existing default pagination and Admin API
+        // semantics remain unchanged.
+        if (input.take === 0 && ctx.apiType === 'shop') {
+            return [];
+        }
         const take = input.take || 25;
         const skip = input.skip || 0;
         const sort = input.sort;
