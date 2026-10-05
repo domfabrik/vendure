@@ -2,6 +2,7 @@ import {
     bootstrap,
     defaultConfig,
     JobQueueService,
+    Logger,
     mergeConfig,
     Product,
     runMigrations,
@@ -13,6 +14,7 @@ import path from 'path';
 import { initialData } from '../core/mock-data/data-sources/initial-data';
 
 import { bootstrapCatalogStructure } from './catalog/bootstrap-catalog-structure';
+import { synchronizeDescriptionStudy } from './description-study/synchronize-description-study';
 import { fabricServerConfig } from './vendure-config';
 
 const productsCsvPath = path.join(__dirname, '../core/mock-data/data-sources/products.csv');
@@ -25,7 +27,12 @@ async function main() {
 
     try {
         const summary = await bootstrapCatalogStructure(app);
-        console.log('[catalog-bootstrap] complete', JSON.stringify(summary));
+        Logger.info(`[catalog-bootstrap] complete ${JSON.stringify(summary)}`, 'FabricPrepare');
+        const descriptionStudy = await synchronizeDescriptionStudy(app);
+        Logger.info(
+            `[description-study-bootstrap] complete ${JSON.stringify(descriptionStudy)}`,
+            'FabricPrepare',
+        );
 
         if (process.env.VENDURE_INITIALIZE_SAMPLE_DATA !== 'true') {
             return;
@@ -74,6 +81,6 @@ async function main() {
 }
 
 main().catch(err => {
-    console.error(err);
+    Logger.error(err instanceof Error ? (err.stack ?? err.message) : String(err), 'FabricPrepare');
     process.exit(1);
 });

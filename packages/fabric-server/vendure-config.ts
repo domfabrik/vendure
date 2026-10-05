@@ -18,6 +18,7 @@ import { CatalogPricingPlugin } from './catalog/catalog-pricing.plugin';
 import { aridaCatalogCustomFields } from './catalog/custom-fields';
 import { PriceNotSpecifiedOrderInterceptor } from './catalog/price-not-specified-order.interceptor';
 import { PriceNotSpecifiedOrderProcess } from './catalog/price-not-specified-order.process';
+import { DescriptionStudyPlugin } from './description-study/description-study.plugin';
 import { OrderEmailHistoryPlugin } from './email/email-history.plugin';
 import { createNewOrderNotificationHandler } from './email/new-order-notification-handler';
 import { LeadOrderPlugin } from './lead/lead-order.plugin';
@@ -34,6 +35,7 @@ const storefrontOrigins = (process.env.STOREFRONT_ORIGIN ?? '')
     .filter(Boolean);
 
 const logLevel = process.env.LOG_LEVEL === 'debug' ? LogLevel.Debug : LogLevel.Info;
+const fabricLogger = new DefaultLogger({ level: logLevel });
 const assetUploadDir = process.env.VENDURE_ASSET_UPLOAD_DIR ?? path.join(process.cwd(), 'var/assets');
 const publicUrl = process.env.VENDURE_PUBLIC_URL?.trim().replace(/\/+$/, '');
 const assetUrlPrefix = publicUrl ? `${publicUrl}/assets/` : undefined;
@@ -101,7 +103,7 @@ export const fabricServerConfig: VendureConfig = {
         process: [defaultOrderProcess, new PriceNotSpecifiedOrderProcess()],
     },
     customFields: aridaCatalogCustomFields,
-    logger: new DefaultLogger({ level: logLevel }),
+    logger: fabricLogger,
     importExportOptions: {
         importAssetsDir: path.join(__dirname, '../core/mock-data/assets'),
     },
@@ -126,6 +128,7 @@ export const fabricServerConfig: VendureConfig = {
         }),
         OrderEmailHistoryPlugin,
         LeadOrderPlugin,
+        DescriptionStudyPlugin,
         ...getEmailPlugins(),
         ...(process.env.VENDURE_ENABLE_SCHEDULER === 'true' ? [DefaultSchedulerPlugin.init({})] : []),
     ],
@@ -182,8 +185,9 @@ function getEmailPlugins() {
     const fromAddress = process.env.EMAIL_FROM_ADDRESS?.trim();
 
     if (!host || !user || !password || !fromAddress) {
-        console.warn(
+        fabricLogger.warn(
             '[email] ORDER_NOTIFICATION_RECIPIENT is set, but SMTP config is incomplete. Email notifications are disabled.',
+            'FabricConfig',
         );
         return [];
     }
@@ -191,7 +195,10 @@ function getEmailPlugins() {
     const rawPort = process.env.EMAIL_SMTP_PORT?.trim();
     const port = rawPort ? Number(rawPort) : 465;
     if (Number.isNaN(port)) {
-        console.warn('[email] EMAIL_SMTP_PORT is invalid. Email notifications are disabled.');
+        fabricLogger.warn(
+            '[email] EMAIL_SMTP_PORT is invalid. Email notifications are disabled.',
+            'FabricConfig',
+        );
         return [];
     }
 

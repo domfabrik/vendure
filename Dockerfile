@@ -35,8 +35,10 @@ RUN npm run build:plugin --prefix packages/dashboard
 RUN npx vite build --config packages/fabric-server/dashboard/vite.config.mts
 RUN npx tsc -p tsconfig.docker-runtime.json
 RUN mkdir -p .docker-runtime/packages/core/mock-data/data-sources .docker-runtime/packages/core/mock-data/assets
+RUN mkdir -p .docker-runtime/packages/fabric-server/description-study/data
 RUN cp packages/core/mock-data/data-sources/products.csv .docker-runtime/packages/core/mock-data/data-sources/products.csv
 RUN cp -R packages/core/mock-data/assets/. .docker-runtime/packages/core/mock-data/assets/
+RUN cp packages/fabric-server/description-study/data/candidates.v1.json .docker-runtime/packages/fabric-server/description-study/data/candidates.v1.json
 
 FROM node:${NODE_VER}-bookworm-slim AS runtime
 

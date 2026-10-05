@@ -1,0 +1,13 @@
+{
+    "schemaVersion": 1,
+    "experimentKey": "description-third-20261005-v1",
+    "title": "Слепое сравнение описаний товаров",
+    "sourceSnapshotSha256": "a655ac3ba953723ec16f9881abd1eb15bda9dd20347f9952bf077afb34faa38c",
+    "sourceCapturedAt": "2026-10-05T00:00:00.000Z",
+    "sourceOrigin": "https://domfabrik.ru",
+    "selectionRule": "Every third published production product after one frozen global Unicode-codepoint slug sort (1-based ordinals 3, 6, 9, ...).",
+    "totalPublished": 1537,
+    "selectedTotal": 512,
+    "generationComplete": false,
+    "cases": []
+}
