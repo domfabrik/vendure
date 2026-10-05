@@ -2,16 +2,20 @@
 set -eu
 
 ROLE="${VENDURE_ROLE:-server}"
+OBSERVABILITY_ARGS=""
+if [ "${CATALOG_OBSERVABILITY_ENABLED:-false}" = "true" ]; then
+    OBSERVABILITY_ARGS="--require=/app/catalog-observability.cjs"
+fi
 
 case "$ROLE" in
     bootstrap)
-        exec node .docker-runtime/packages/fabric-server/prepare.js
+        exec node $OBSERVABILITY_ARGS .docker-runtime/packages/fabric-server/prepare.js
         ;;
     server)
-        exec node .docker-runtime/packages/fabric-server/index-server.js
+        exec node $OBSERVABILITY_ARGS .docker-runtime/packages/fabric-server/index-server.js
         ;;
     worker)
-        exec node .docker-runtime/packages/fabric-server/index-worker.js
+        exec node $OBSERVABILITY_ARGS .docker-runtime/packages/fabric-server/index-worker.js
         ;;
     *)
         echo "Unknown VENDURE_ROLE: $ROLE" >&2

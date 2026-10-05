@@ -110,6 +110,33 @@ jobs:
           ssh-keyscan -H "${SERVER_HOST}" >> ~/.ssh/known_hosts
           chmod 644 ~/.ssh/known_hosts
 
+      - name: Capture sanitized catalog observability
+        shell: bash
+        env:
+          RUNNER_USER: ${{ vars.RUNNER_USER }}
+          SERVER_HOST: ${{ steps.vars.outputs.server_host }}
+          DEPLOY_ENV: ${{ steps.vars.outputs.deploy_env }}
+          CAPTURE_DIR: ${{ runner.temp }}/catalog-observability-${{ github.run_id }}-${{ github.run_attempt }}-${{ steps.vars.outputs.deploy_env }}
+        run: |
+          set -euo pipefail
+          node .github/scripts/capture-catalog-observability.mjs \
+            --environment "${DEPLOY_ENV}" \
+            --output-dir "${CAPTURE_DIR}" \
+            --runner-temp "${RUNNER_TEMP}" \
+            --ssh-user "${RUNNER_USER}" \
+            --ssh-host "${SERVER_HOST}" \
+            --key-path "${HOME}/.ssh/id_ed25519"
+
+      - name: Upload sanitized catalog observability
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-predeploy-catalog-observability-${{ steps.vars.outputs.deploy_env }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/catalog-observability-${{ github.run_id }}-${{ github.run_attempt }}-${{ steps.vars.outputs.deploy_env }}/*.jsonl
+            ${{ runner.temp }}/catalog-observability-${{ github.run_id }}-${{ github.run_attempt }}-${{ steps.vars.outputs.deploy_env }}/*.manifest.json
+          if-no-files-found: error
+          retention-days: 3
+
       - name: Deploy backend
         shell: bash
         env:

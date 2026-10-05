@@ -49,6 +49,7 @@ COPY --from=builder /app/packages/asset-server-plugin ./packages/asset-server-pl
 COPY --from=builder /app/packages/email-plugin ./packages/email-plugin
 COPY --from=builder /app/packages/dashboard ./packages/dashboard
 COPY --from=builder /app/packages/fabric-server ./packages/fabric-server
+COPY --from=builder /app/packages/fabric-server/catalog/catalog-observability.cjs ./catalog-observability.cjs
 COPY --from=builder /app/.docker-runtime ./.docker-runtime
 COPY --from=builder /app/docker-entrypoint.sh ./docker-entrypoint.sh
 
