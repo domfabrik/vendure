@@ -5,6 +5,8 @@ import { Repository } from 'typeorm';
 
 import {
     BundleExpectations,
+    canonicalJson,
+    isDescriptionStudyBundleComplete,
     productionBundleExpectations,
     sha256Utf8,
     validateDescriptionStudyBundle,
@@ -41,17 +43,6 @@ export function participantKey(experimentKey: string, sessionId: string | number
     return sha256Utf8(`${experimentKey}:${String(sessionId)}`);
 }
 
-function canonicalJson(value: unknown): string {
-    if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
-    if (value && typeof value === 'object') {
-        return `{${Object.entries(value as Record<string, unknown>)
-            .sort(([left], [right]) => left.localeCompare(right))
-            .map(([key, item]) => `${JSON.stringify(key)}:${canonicalJson(item)}`)
-            .join(',')}}`;
-    }
-    return JSON.stringify(value);
-}
-
 @Injectable()
 export class DescriptionStudyService {
     constructor(private connection: TransactionalConnection) {}
@@ -80,7 +71,7 @@ export class DescriptionStudyService {
             ]);
             const scope = { channelId: String(ctx.channelId), experimentKey: bundle.experimentKey };
             const existing = await repository.find({ where: scope, order: { ordinal: 'ASC' } });
-            if (!bundle.generationComplete) {
+            if (!isDescriptionStudyBundleComplete(bundle)) {
                 if (existing.length > 0)
                     throw new DescriptionStudyError('DESCRIPTION_STUDY_INCOMPLETE_BUNDLE_CONFLICT');
                 return { inserted: 0, existing: 0 };

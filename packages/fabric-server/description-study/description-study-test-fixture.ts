@@ -1,4 +1,11 @@
-import { BundleExpectations, DescriptionStudyBundle, sha256Utf8 } from './description-study.bundle';
+import {
+    BundleExpectations,
+    canonicalJson,
+    DescriptionStudyBundle,
+    DescriptionStudyBundleV2,
+    DescriptionStudyCase,
+    sha256Utf8,
+} from './description-study.bundle';
 
 export const QA_EXPERIMENT = 'description-study-qa-20261005-v1';
 export const QA_EXPECTATIONS: BundleExpectations = {
@@ -55,4 +62,59 @@ export const QA_BUNDLE: DescriptionStudyBundle = {
         qaCase(3, 'banketka-mokko-bezhevyj', 'Old gamma description', 'New gamma description'),
         qaCase(4, 'divan-afina-karavadzho', 'Old omega description', 'New omega description'),
     ],
+};
+
+export const V2_QA_EXPERIMENT = 'description-study-qa-v2-20261005-v1';
+export const V2_QA_EXPECTATIONS: BundleExpectations = {
+    experimentKey: V2_QA_EXPERIMENT,
+    sourceSnapshotSha256: 'd'.repeat(64),
+    totalPublished: 9,
+    selectedTotal: 3,
+    oldEmptyTotal: 1,
+};
+
+const v2SourceCases = QA_BUNDLE.cases.slice(0, 2).map((source, index): DescriptionStudyCase => {
+    const sourceProductId = `qa-v2-production-${index + 1}`;
+    return {
+        ...structuredClone(source),
+        sourceProductId,
+        oldVersionId: `${V2_QA_EXPERIMENT}:old:${sourceProductId}:${source.oldHash}`,
+        newVersionId: `${V2_QA_EXPERIMENT}:new:${sourceProductId}:${source.newHash}`,
+    };
+});
+const v2ExcludedSource = QA_BUNDLE.cases[2];
+const v2Excluded = {
+    sourceProductId: 'qa-v2-production-3',
+    slug: v2ExcludedSource.slug,
+    ordinal: v2ExcludedSource.ordinal,
+    oldEmpty: v2ExcludedSource.oldEmpty,
+    oldHash: v2ExcludedSource.oldHash,
+    reason: 'Synthetic QA exclusion for persistence regression',
+};
+const v2ExclusionsSha256 = sha256Utf8(canonicalJson([v2Excluded]));
+const v2Accounting = {
+    selectedTotal: V2_QA_EXPECTATIONS.selectedTotal,
+    includedTotal: 2,
+    excludedTotal: 1,
+    exclusionsSha256: v2ExclusionsSha256,
+};
+export const V2_QA_BUNDLE: DescriptionStudyBundleV2 = {
+    schemaVersion: 2,
+    experimentKey: V2_QA_EXPERIMENT,
+    title: 'Synthetic QA v2 description study',
+    sourceSnapshotSha256: V2_QA_EXPECTATIONS.sourceSnapshotSha256,
+    sourceCapturedAt: '2026-10-05T00:00:00.000Z',
+    sourceOrigin: 'https://domfabrik.ru',
+    selectionRule: 'Synthetic QA every third cohort with explicit exclusions',
+    totalPublished: V2_QA_EXPECTATIONS.totalPublished,
+    selectedTotal: V2_QA_EXPECTATIONS.selectedTotal,
+    processingComplete: true,
+    includedTotal: v2Accounting.includedTotal,
+    excludedTotal: v2Accounting.excludedTotal,
+    excludedCases: [v2Excluded],
+    exclusionsSha256: v2ExclusionsSha256,
+    cases: v2SourceCases.map(source => ({
+        ...source,
+        generationMetadata: { ...source.generationMetadata, cohortAccounting: v2Accounting },
+    })),
 };

@@ -5,7 +5,13 @@ import { ChildProcess, fork } from 'node:child_process';
 import path from 'node:path';
 import { Client } from 'pg';
 
-import { QA_BUNDLE, QA_EXPERIMENT } from './description-study-test-fixture';
+import {
+    QA_BUNDLE,
+    QA_EXPERIMENT,
+    V2_QA_BUNDLE,
+    V2_QA_EXPECTATIONS,
+    V2_QA_EXPERIMENT,
+} from './description-study-test-fixture';
 
 const children: ChildProcess[] = [];
 const schema = `description_study_test_${Date.now()}`;
@@ -182,6 +188,32 @@ async function main() {
     );
     console.log(
         'TC-DS1: migration up twice, immutable bundle bootstrap, hash and dataset tamper refusal proven',
+    );
+    const v2Evidence = first.ready.bootstrapEvidence.v2;
+    assert(v2Evidence.channelId);
+    assert.deepEqual(v2Evidence.first, { inserted: V2_QA_BUNDLE.includedTotal, existing: 0 });
+    assert.deepEqual(v2Evidence.second, { inserted: 0, existing: V2_QA_BUNDLE.includedTotal });
+    assert.equal(v2Evidence.candidateCount, V2_QA_BUNDLE.includedTotal);
+    assert.deepEqual(
+        v2Evidence.candidateIds,
+        V2_QA_BUNDLE.cases.map(item => item.sourceProductId),
+    );
+    for (const excludedId of v2Evidence.excludedIds) {
+        assert(!v2Evidence.candidateIds.includes(excludedId));
+    }
+    assert.match(v2Evidence.changedDataset, /DESCRIPTION_STUDY_DATASET_CHANGED/);
+    assert.deepEqual(v2Evidence.before, v2Evidence.after);
+    assert.deepEqual(
+        v2Evidence.before.map((candidate: any) => candidate.generationMetadata.cohortAccounting),
+        V2_QA_BUNDLE.cases.map(item => item.generationMetadata.cohortAccounting),
+    );
+    assert.equal(
+        Number(v2Evidence.before.length) + Number(v2Evidence.excludedIds.length),
+        V2_QA_EXPECTATIONS.selectedTotal,
+    );
+    assert.equal(V2_QA_EXPERIMENT, V2_QA_BUNDLE.experimentKey);
+    console.log(
+        'TC-DS1v2: schema v2 inserted only eligible cases, excluded IDs stayed absent, repeat was idempotent, and recomputed exclusion accounting remained immutable',
     );
 
     const productionGate = await start(2, false, 'https://domfabrik.ru');

@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 
 import {
     BundleExpectations,
+    canonicalJson,
     DescriptionStudyBundle,
     sha256Utf8,
     validateDescriptionStudyBundle,
@@ -125,6 +126,93 @@ assert.equal(validateDescriptionStudyBundle(incomplete, expectations), incomplet
 assert.throws(() =>
     validateDescriptionStudyBundle({ ...structuredClone(bundle), generationComplete: false }, expectations),
 );
+
+const excludedCase = {
+    sourceProductId: bundle.cases[1].sourceProductId,
+    slug: bundle.cases[1].slug,
+    ordinal: bundle.cases[1].ordinal,
+    oldEmpty: bundle.cases[1].oldEmpty,
+    oldHash: bundle.cases[1].oldHash,
+    reason: 'excluded from the approved generated subset',
+};
+const exclusionsSha256 = sha256Utf8(canonicalJson([excludedCase]));
+const accounting = {
+    selectedTotal: 2,
+    includedTotal: 1,
+    excludedTotal: 1,
+    exclusionsSha256,
+};
+const { generationComplete: _generationComplete, ...bundleWithoutGenerationComplete } =
+    structuredClone(bundle);
+const v2: Extract<DescriptionStudyBundle, { schemaVersion: 2 }> = {
+    ...bundleWithoutGenerationComplete,
+    schemaVersion: 2,
+    processingComplete: true,
+    includedTotal: 1,
+    excludedTotal: 1,
+    excludedCases: [excludedCase],
+    exclusionsSha256,
+    cases: [
+        {
+            ...structuredClone(bundle.cases[0]),
+            generationMetadata: { ...bundle.cases[0].generationMetadata, cohortAccounting: accounting },
+        },
+    ],
+};
+assert.equal(validateDescriptionStudyBundle(v2, expectations), v2);
+const reaccountV2 = (copy: typeof v2) => {
+    copy.exclusionsSha256 = sha256Utf8(canonicalJson(copy.excludedCases));
+    const cohortAccounting = {
+        selectedTotal: copy.selectedTotal,
+        includedTotal: copy.includedTotal,
+        excludedTotal: copy.excludedTotal,
+        exclusionsSha256: copy.exclusionsSha256,
+    };
+    copy.cases = copy.cases.map(item => ({
+        ...item,
+        generationMetadata: { ...item.generationMetadata, cohortAccounting },
+    }));
+};
+for (const mutate of [
+    (copy: typeof v2) => {
+        copy.excludedCases[0].sourceProductId = copy.cases[0].sourceProductId;
+        reaccountV2(copy);
+    },
+    (copy: typeof v2) => {
+        copy.excludedCases[0].slug = copy.cases[0].slug;
+        reaccountV2(copy);
+    },
+    (copy: typeof v2) => {
+        copy.excludedCases[0].ordinal = 12;
+        reaccountV2(copy);
+    },
+    (copy: typeof v2) => {
+        copy.excludedCases[0].oldHash = 'g'.repeat(64);
+        reaccountV2(copy);
+    },
+    (copy: typeof v2) => {
+        copy.excludedCases[0].oldEmpty = true;
+        copy.excludedCases[0].oldHash = sha256Utf8('');
+        reaccountV2(copy);
+    },
+]) {
+    const copy = structuredClone(v2);
+    mutate(copy);
+    assert.throws(() => validateDescriptionStudyBundle(copy, expectations));
+}
+for (const mutate of [
+    (copy: typeof v2) => (copy.includedTotal = 2),
+    (copy: typeof v2) => (copy.excludedCases[0].oldEmpty = true),
+    (copy: typeof v2) =>
+        ((
+            copy.cases[0].generationMetadata as { cohortAccounting: { excludedTotal: number } }
+        ).cohortAccounting.excludedTotal = 2),
+    (copy: typeof v2) => ((copy as unknown as Record<string, unknown>).generationComplete = true),
+]) {
+    const copy = structuredClone(v2);
+    mutate(copy);
+    assert.throws(() => validateDescriptionStudyBundle(copy, expectations));
+}
 console.log(
     'Description study unit checks passed: exact gate, hashes, frozen cohort and incomplete fixture rules',
 );

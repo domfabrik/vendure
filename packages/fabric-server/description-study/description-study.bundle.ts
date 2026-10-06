@@ -34,8 +34,23 @@ export interface DescriptionStudyCase {
     generationMetadata: Record<string, unknown>;
 }
 
-export interface DescriptionStudyBundle {
-    schemaVersion: number;
+export interface DescriptionStudyExclusion {
+    sourceProductId: string;
+    slug: string;
+    ordinal: number;
+    oldEmpty: boolean;
+    oldHash: string;
+    reason: string;
+}
+
+export interface DescriptionStudyCohortAccounting {
+    selectedTotal: number;
+    includedTotal: number;
+    excludedTotal: number;
+    exclusionsSha256: string;
+}
+
+interface DescriptionStudyBundleBase {
     experimentKey: string;
     title: string;
     sourceSnapshotSha256: string;
@@ -44,9 +59,24 @@ export interface DescriptionStudyBundle {
     selectionRule: string;
     totalPublished: number;
     selectedTotal: number;
-    generationComplete: boolean;
     cases: DescriptionStudyCase[];
 }
+
+export interface DescriptionStudyBundleV1 extends DescriptionStudyBundleBase {
+    schemaVersion: 1;
+    generationComplete: boolean;
+}
+
+export interface DescriptionStudyBundleV2 extends DescriptionStudyBundleBase {
+    schemaVersion: 2;
+    processingComplete: true;
+    includedTotal: number;
+    excludedTotal: number;
+    excludedCases: DescriptionStudyExclusion[];
+    exclusionsSha256: string;
+}
+
+export type DescriptionStudyBundle = DescriptionStudyBundleV1 | DescriptionStudyBundleV2;
 
 export interface BundleExpectations {
     experimentKey: string;
@@ -68,6 +98,20 @@ export function sha256Utf8(value: string): string {
     return createHash('sha256').update(value, 'utf8').digest('hex');
 }
 
+/** Python json.dumps(..., sort_keys=True, ensure_ascii=False, separators=(',', ':')). */
+export function canonicalJson(value: unknown): string {
+    if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
+    if (value && typeof value === 'object') {
+        return `{${Object.entries(value as Record<string, unknown>)
+            .sort(([left], [right]) => compareUnicodeCodePoints(left, right))
+            .map(([key, item]) => `${JSON.stringify(key)}:${canonicalJson(item)}`)
+            .join(',')}}`;
+    }
+    const encoded = JSON.stringify(value);
+    if (encoded === undefined) throw new Error('DESCRIPTION_STUDY_INVALID_BUNDLE:canonicalJson');
+    return encoded;
+}
+
 function assertString(value: unknown, field: string, allowEmpty = false): asserts value is string {
     if (typeof value !== 'string' || (!allowEmpty && value.length === 0)) {
         throw new Error(`DESCRIPTION_STUDY_INVALID_BUNDLE:${field}`);
@@ -81,6 +125,10 @@ function compareUnicodeCodePoints(left: string, right: string): number {
         if (a[index] !== b[index]) return a[index] - b[index];
     }
     return a.length - b.length;
+}
+
+export function isDescriptionStudyBundleComplete(bundle: DescriptionStudyBundle): boolean {
+    return bundle.schemaVersion === 1 ? bundle.generationComplete : bundle.processingComplete;
 }
 
 const vendorSourceHosts = new Set([
@@ -155,7 +203,8 @@ export function validateDescriptionStudyBundle(
 ): DescriptionStudyBundle {
     if (!value || typeof value !== 'object') throw new Error('DESCRIPTION_STUDY_INVALID_BUNDLE:root');
     const bundle = value as DescriptionStudyBundle;
-    if (bundle.schemaVersion !== 1) throw new Error('DESCRIPTION_STUDY_INVALID_BUNDLE:schemaVersion');
+    if (bundle.schemaVersion !== 1 && bundle.schemaVersion !== 2)
+        throw new Error('DESCRIPTION_STUDY_INVALID_BUNDLE:schemaVersion');
     if (bundle.experimentKey !== expected.experimentKey)
         throw new Error('DESCRIPTION_STUDY_INVALID_BUNDLE:experimentKey');
     if (bundle.sourceSnapshotSha256 !== expected.sourceSnapshotSha256)
@@ -169,20 +218,57 @@ export function validateDescriptionStudyBundle(
     assertString(bundle.sourceCapturedAt, 'sourceCapturedAt');
     if (Number.isNaN(Date.parse(bundle.sourceCapturedAt)))
         throw new Error('DESCRIPTION_STUDY_INVALID_BUNDLE:sourceCapturedAt');
-    if (typeof bundle.generationComplete !== 'boolean' || !Array.isArray(bundle.cases))
-        throw new Error('DESCRIPTION_STUDY_INVALID_BUNDLE:cases');
-    if (!bundle.generationComplete) {
-        if (bundle.cases.length !== 0) throw new Error('DESCRIPTION_STUDY_INVALID_BUNDLE:partial');
+    if (!Array.isArray(bundle.cases)) throw new Error('DESCRIPTION_STUDY_INVALID_BUNDLE:cases');
+
+    if (bundle.schemaVersion === 1) {
+        if (typeof bundle.generationComplete !== 'boolean')
+            throw new Error('DESCRIPTION_STUDY_INVALID_BUNDLE:cases');
+        if (!bundle.generationComplete) {
+            if (bundle.cases.length !== 0) throw new Error('DESCRIPTION_STUDY_INVALID_BUNDLE:partial');
+            return bundle;
+        }
+        if (bundle.cases.length !== expected.selectedTotal)
+            throw new Error('DESCRIPTION_STUDY_INVALID_BUNDLE:caseCount');
+        validateCases(bundle, expected, false);
         return bundle;
     }
-    if (bundle.cases.length !== expected.selectedTotal)
-        throw new Error('DESCRIPTION_STUDY_INVALID_BUNDLE:caseCount');
 
+    if ('generationComplete' in (bundle as unknown as Record<string, unknown>))
+        throw new Error('DESCRIPTION_STUDY_INVALID_BUNDLE:generationComplete');
+    if (bundle.processingComplete !== true)
+        throw new Error('DESCRIPTION_STUDY_INVALID_BUNDLE:processingComplete');
+    if (
+        !Number.isInteger(bundle.includedTotal) ||
+        !Number.isInteger(bundle.excludedTotal) ||
+        bundle.includedTotal < 0 ||
+        bundle.excludedTotal < 0 ||
+        !Array.isArray(bundle.excludedCases)
+    )
+        throw new Error('DESCRIPTION_STUDY_INVALID_BUNDLE:cohortAccounting');
+    if (
+        bundle.includedTotal !== bundle.cases.length ||
+        bundle.excludedTotal !== bundle.excludedCases.length ||
+        bundle.includedTotal + bundle.excludedTotal !== expected.selectedTotal
+    )
+        throw new Error('DESCRIPTION_STUDY_INVALID_BUNDLE:cohortAccounting');
+    if (!/^[0-9a-f]{64}$/.test(bundle.exclusionsSha256))
+        throw new Error('DESCRIPTION_STUDY_INVALID_BUNDLE:exclusionsSha256');
+    if (sha256Utf8(canonicalJson(bundle.excludedCases)) !== bundle.exclusionsSha256)
+        throw new Error('DESCRIPTION_STUDY_INVALID_BUNDLE:exclusionsSha256');
+
+    validateCases(bundle, expected, true);
+    validateExclusions(bundle.excludedCases);
+    validateCombinedCohort(bundle, expected);
+    return bundle;
+}
+
+function validateCases(bundle: DescriptionStudyBundle, expected: BundleExpectations, schema2: boolean): void {
     const productIds = new Set<string>();
     const slugs = new Set<string>();
     const versionIds = new Set<string>();
     let oldEmptyTotal = 0;
     let previousSlug: string | undefined;
+    let previousOrdinal = 0;
     for (let index = 0; index < bundle.cases.length; index++) {
         const item = bundle.cases[index];
         if (!item || typeof item !== 'object') throw new Error('DESCRIPTION_STUDY_INVALID_BUNDLE:case');
@@ -210,11 +296,14 @@ export function validateDescriptionStudyBundle(
             Array.isArray(item.generationMetadata)
         )
             throw new Error('DESCRIPTION_STUDY_INVALID_BUNDLE:case.generationMetadata');
-        if (item.ordinal !== (index + 1) * 3)
+        if (!Number.isInteger(item.ordinal) || item.ordinal <= previousOrdinal)
+            throw new Error('DESCRIPTION_STUDY_INVALID_BUNDLE:case.ordinal');
+        if (!schema2 && item.ordinal !== (index + 1) * 3)
             throw new Error('DESCRIPTION_STUDY_INVALID_BUNDLE:case.ordinal');
         if (previousSlug !== undefined && compareUnicodeCodePoints(previousSlug, item.slug) >= 0)
             throw new Error('DESCRIPTION_STUDY_INVALID_BUNDLE:case.slugOrder');
         previousSlug = item.slug;
+        previousOrdinal = item.ordinal;
         if (productIds.has(item.sourceProductId) || slugs.has(item.slug))
             throw new Error('DESCRIPTION_STUDY_INVALID_BUNDLE:case.duplicateProduct');
         if (versionIds.has(item.oldVersionId) || versionIds.has(item.newVersionId))
@@ -237,11 +326,80 @@ export function validateDescriptionStudyBundle(
             item.newVersionId !== expectedNewVersionId
         )
             throw new Error('DESCRIPTION_STUDY_INVALID_BUNDLE:case.versionId');
+        if (schema2) validateCohortAccounting(item.generationMetadata, bundle as DescriptionStudyBundleV2);
+        if (item.oldEmpty) oldEmptyTotal++;
+    }
+    if (!schema2 && oldEmptyTotal !== expected.oldEmptyTotal)
+        throw new Error('DESCRIPTION_STUDY_INVALID_BUNDLE:oldEmptyTotal');
+}
+
+function validateCohortAccounting(metadata: Record<string, unknown>, bundle: DescriptionStudyBundleV2): void {
+    const accounting = metadata.cohortAccounting;
+    if (!accounting || typeof accounting !== 'object' || Array.isArray(accounting))
+        throw new Error('DESCRIPTION_STUDY_INVALID_BUNDLE:cohortAccounting');
+    const record = accounting as Record<string, unknown>;
+    if (
+        Object.keys(record).sort(compareUnicodeCodePoints).join(',') !==
+            'excludedTotal,exclusionsSha256,includedTotal,selectedTotal' ||
+        record.selectedTotal !== bundle.selectedTotal ||
+        record.includedTotal !== bundle.includedTotal ||
+        record.excludedTotal !== bundle.excludedTotal ||
+        record.exclusionsSha256 !== bundle.exclusionsSha256
+    )
+        throw new Error('DESCRIPTION_STUDY_INVALID_BUNDLE:cohortAccounting');
+}
+
+function validateExclusions(value: DescriptionStudyExclusion[]): void {
+    let previousOrdinal = 0;
+    let previousSlug: string | undefined;
+    for (const item of value) {
+        if (!item || typeof item !== 'object' || Array.isArray(item))
+            throw new Error('DESCRIPTION_STUDY_INVALID_BUNDLE:excludedCase');
+        if (
+            Object.keys(item).sort(compareUnicodeCodePoints).join(',') !==
+            'oldEmpty,oldHash,ordinal,reason,slug,sourceProductId'
+        )
+            throw new Error('DESCRIPTION_STUDY_INVALID_BUNDLE:excludedCase');
+        assertString(item.sourceProductId, 'excludedCase.sourceProductId');
+        assertString(item.slug, 'excludedCase.slug');
+        assertString(item.reason, 'excludedCase.reason');
+        if (!Number.isInteger(item.ordinal) || item.ordinal <= previousOrdinal)
+            throw new Error('DESCRIPTION_STUDY_INVALID_BUNDLE:excludedCase.ordinal');
+        if (previousSlug !== undefined && compareUnicodeCodePoints(previousSlug, item.slug) >= 0)
+            throw new Error('DESCRIPTION_STUDY_INVALID_BUNDLE:excludedCase.slugOrder');
+        if (typeof item.oldEmpty !== 'boolean' || !/^[0-9a-f]{64}$/.test(item.oldHash))
+            throw new Error('DESCRIPTION_STUDY_INVALID_BUNDLE:excludedCase.oldHash');
+        if (item.oldEmpty !== (item.oldHash === sha256Utf8('')))
+            throw new Error('DESCRIPTION_STUDY_INVALID_BUNDLE:excludedCase.oldEmpty');
+        previousOrdinal = item.ordinal;
+        previousSlug = item.slug;
+    }
+}
+
+function validateCombinedCohort(bundle: DescriptionStudyBundleV2, expected: BundleExpectations): void {
+    const combined = [
+        ...bundle.cases.map(item => ({ ...item, kind: 'case' as const })),
+        ...bundle.excludedCases.map(item => ({ ...item, kind: 'excluded' as const })),
+    ].sort((left, right) => left.ordinal - right.ordinal);
+    const productIds = new Set<string>();
+    const slugs = new Set<string>();
+    let oldEmptyTotal = 0;
+    let previousSlug: string | undefined;
+    for (let index = 0; index < combined.length; index++) {
+        const item = combined[index];
+        if (item.ordinal !== (index + 1) * 3)
+            throw new Error('DESCRIPTION_STUDY_INVALID_BUNDLE:cohortOrdinalCoverage');
+        if (previousSlug !== undefined && compareUnicodeCodePoints(previousSlug, item.slug) >= 0)
+            throw new Error('DESCRIPTION_STUDY_INVALID_BUNDLE:cohortSlugOrder');
+        if (productIds.has(item.sourceProductId) || slugs.has(item.slug))
+            throw new Error('DESCRIPTION_STUDY_INVALID_BUNDLE:cohortDuplicateProduct');
+        productIds.add(item.sourceProductId);
+        slugs.add(item.slug);
+        previousSlug = item.slug;
         if (item.oldEmpty) oldEmptyTotal++;
     }
     if (oldEmptyTotal !== expected.oldEmptyTotal)
         throw new Error('DESCRIPTION_STUDY_INVALID_BUNDLE:oldEmptyTotal');
-    return bundle;
 }
 
 export async function loadDescriptionStudyBundle(): Promise<DescriptionStudyBundle> {

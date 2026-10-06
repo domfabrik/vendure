@@ -15,7 +15,14 @@ import { randomUUID } from 'node:crypto';
 
 import { AddDescriptionStudy1791230400000 } from '../../dev-server/migrations/1791230400000-add-description-study';
 
-import { QA_BUNDLE, QA_EXPECTATIONS } from './description-study-test-fixture';
+import {
+    QA_BUNDLE,
+    QA_EXPECTATIONS,
+    V2_QA_BUNDLE,
+    V2_QA_EXPECTATIONS,
+    V2_QA_EXPERIMENT,
+} from './description-study-test-fixture';
+import { canonicalJson, sha256Utf8 } from './description-study.bundle';
 import { DescriptionStudyBallot, DescriptionStudyCandidate } from './description-study.entity';
 import { DescriptionStudyPlugin } from './description-study.plugin';
 import { DescriptionStudyService } from './description-study.service';
@@ -167,6 +174,38 @@ async function main() {
         };
         await addNoise('qa-other-channel', QA_BUNDLE.experimentKey, 'd');
         await addNoise(String(ctx.channelId), `${QA_BUNDLE.experimentKey}-other`, 'e');
+        const v2ChannelId = String(ctx.channelId);
+        const v2First = await service.syncBundle(ctx, V2_QA_BUNDLE, V2_QA_EXPECTATIONS);
+        const v2Second = await service.syncBundle(ctx, structuredClone(V2_QA_BUNDLE), V2_QA_EXPECTATIONS);
+        const v2BeforeChange = await candidateRepository.find({
+            where: { channelId: v2ChannelId, experimentKey: V2_QA_EXPERIMENT },
+            order: { ordinal: 'ASC' },
+        });
+        let v2ChangedDataset = '';
+        try {
+            const changed = structuredClone(V2_QA_BUNDLE);
+            changed.excludedCases[0].reason = 'Changed synthetic QA exclusion reason';
+            changed.exclusionsSha256 = sha256Utf8(canonicalJson(changed.excludedCases));
+            changed.cases = changed.cases.map(item => ({
+                ...item,
+                generationMetadata: {
+                    ...item.generationMetadata,
+                    cohortAccounting: {
+                        selectedTotal: changed.selectedTotal,
+                        includedTotal: changed.includedTotal,
+                        excludedTotal: changed.excludedTotal,
+                        exclusionsSha256: changed.exclusionsSha256,
+                    },
+                },
+            }));
+            await service.syncBundle(ctx, changed, V2_QA_EXPECTATIONS);
+        } catch (error) {
+            v2ChangedDataset = error instanceof Error ? error.message : String(error);
+        }
+        const v2AfterChange = await candidateRepository.find({
+            where: { channelId: v2ChannelId, experimentKey: V2_QA_EXPERIMENT },
+            order: { ordinal: 'ASC' },
+        });
         bootstrapEvidence = {
             first,
             second,
@@ -174,6 +213,17 @@ async function main() {
             changedDataset,
             changedSource,
             changedCharacteristics,
+            v2: {
+                channelId: v2ChannelId,
+                first: v2First,
+                second: v2Second,
+                candidateCount: v2BeforeChange.length,
+                candidateIds: v2BeforeChange.map(candidate => candidate.sourceProductId),
+                excludedIds: V2_QA_BUNDLE.excludedCases.map(item => item.sourceProductId),
+                changedDataset: v2ChangedDataset,
+                before: v2BeforeChange,
+                after: v2AfterChange,
+            },
         };
     }
 
