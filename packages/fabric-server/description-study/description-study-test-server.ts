@@ -2,6 +2,7 @@
 /* eslint-disable no-console -- Worker startup failures are test evidence. */
 import {
     bootstrap,
+    ConfigService,
     DefaultLogger,
     LanguageCode,
     LogLevel,
@@ -14,6 +15,7 @@ import {
 import { randomUUID } from 'node:crypto';
 
 import { AddDescriptionStudy1791230400000 } from '../../dev-server/migrations/1791230400000-add-description-study';
+import { AddDescriptionStudyParticipant1791504000000 } from '../../dev-server/migrations/1791504000000-add-description-study-participant';
 
 import {
     QA_BUNDLE,
@@ -86,6 +88,8 @@ async function main() {
             await migration.down(runner);
             await migration.up(runner);
             await migration.up(runner);
+            await new AddDescriptionStudyParticipant1791504000000().up(runner);
+            await new AddDescriptionStudyParticipant1791504000000().up(runner);
             await runner.commitTransaction();
         } catch (error) {
             await runner.rollbackTransaction();
@@ -244,12 +248,47 @@ async function main() {
                     })),
                     sentinel: await connection.rawConnection.query(`SELECT * FROM ${qualifiedSentinel}`),
                 };
+            } else if (message.action === 'expireSession') {
+                await connection.rawConnection
+                    .getRepository(Session)
+                    .update({ token: message.token }, { expires: new Date('2000-01-01T00:00:00Z') });
+                await app.get(ConfigService).authOptions.sessionCacheStrategy.delete(message.token);
+                result = true;
+            } else if (message.action === 'recoverDot') {
+                const ctx = await contexts.create({ apiType: 'admin' });
+                result = await app
+                    .get(DescriptionStudyService)
+                    .recoverDotSession(ctx, message.experimentKey, message.studySessionId, message.dryRun);
+            } else if (message.action === 'sessionFixture') {
+                const ctx = await contexts.create({ apiType: 'admin' });
+                const bundle = structuredClone(QA_BUNDLE);
+                bundle.experimentKey = message.experimentKey;
+                for (const item of bundle.cases) {
+                    item.oldVersionId = `${bundle.experimentKey}:old:${item.sourceProductId}:${item.oldHash}`;
+                    item.newVersionId = `${bundle.experimentKey}:new:${item.sourceProductId}:${item.newHash}`;
+                }
+                result = await app
+                    .get(DescriptionStudyService)
+                    .syncBundle(ctx, bundle, { ...QA_EXPECTATIONS, experimentKey: bundle.experimentKey });
             } else if (message.action === 'migrationDown') {
                 const runner = connection.rawConnection.createQueryRunner();
                 await runner.startTransaction();
                 try {
                     await new AddDescriptionStudy1791230400000().down(runner);
                     await runner.commitTransaction();
+                    result = 'unexpected-success';
+                } catch {
+                    await runner.rollbackTransaction();
+                    result = 'refused-nonempty';
+                } finally {
+                    await runner.release();
+                }
+            } else if (message.action === 'participantMigrationDown') {
+                const runner = connection.rawConnection.createQueryRunner();
+                await runner.startTransaction();
+                try {
+                    await new AddDescriptionStudyParticipant1791504000000().down(runner);
+                    await runner.rollbackTransaction();
                     result = 'unexpected-success';
                 } catch {
                     await runner.rollbackTransaction();

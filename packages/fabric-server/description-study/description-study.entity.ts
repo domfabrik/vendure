@@ -65,6 +65,7 @@ export class DescriptionStudyBallot extends VendureEntity {
     @Column() channelId: string;
     @Column() experimentKey: string;
     @Column({ length: 64 }) participantKey: string;
+    @Column('uuid', { nullable: true }) studySessionId: string | null;
     @Column('integer') candidateId: number;
     @ManyToOne(() => DescriptionStudyCandidate, { nullable: false, onDelete: 'RESTRICT' })
     @JoinColumn({ name: 'candidateId' })
@@ -76,4 +77,21 @@ export class DescriptionStudyBallot extends VendureEntity {
     @Column('text', { default: '' }) rightComment: string;
     @Column('timestamp') assignedAt: Date;
     @Column('timestamp', { nullable: true }) votedAt: Date | null;
+}
+
+@Entity('description_study_participant')
+@Index('UQ_description_participant_scope_session', ['channelId', 'experimentKey', 'studySessionId'], {
+    unique: true,
+})
+@Index('UQ_description_participant_scope_owner', ['channelId', 'experimentKey', 'participantKey'], {
+    unique: true,
+})
+export class DescriptionStudyParticipant extends VendureEntity {
+    constructor(input?: DeepPartial<DescriptionStudyParticipant>) {
+        super(input);
+    }
+    @Column() channelId: string;
+    @Column() experimentKey: string;
+    @Column('uuid') studySessionId: string;
+    @Column({ length: 64 }) participantKey: string;
 }

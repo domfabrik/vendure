@@ -22,7 +22,7 @@ const prepareMutation = `mutation Prepare($experimentKey: String!) {
     prepareDescriptionComparison(experimentKey: $experimentKey) {
         status ballotToken productId slug productName imageUrl sourceUrl sourceKind
         parsedCharacteristics { name value }
-        leftText rightText completed total
+        leftText rightText completed total studySessionId
     }
 }`;
 const submitMutation = `mutation Submit($input: DescriptionComparisonVoteInput!) {
@@ -38,13 +38,17 @@ const statsQuery = `query Stats($experimentKey: String!) {
 }`;
 const responsesQuery = `query Responses($experimentKey: String!, $skip: Int!, $take: Int!) {
     descriptionExperimentResponses(experimentKey: $experimentKey, skip: $skip, take: $take) {
-        totalItems items { responseId participantKey productId slug productName oldVersionId newVersionId
+        totalItems items { responseId participantKey studySessionId productId slug productName oldVersionId newVersionId
             oldHash newHash leftVersion rightVersion choice selectedVersion leftComment rightComment
             oldComment newComment assignedAt votedAt }
     }
 }`;
 
-async function command(child: ChildProcess, action: string): Promise<any> {
+async function command(
+    child: ChildProcess,
+    action: string,
+    args: Record<string, unknown> = {},
+): Promise<any> {
     const id = ++commandId;
     return new Promise((resolve, reject) => {
         const timeout = setTimeout(() => reject(new Error(`IPC timeout: ${action}`)), 30000);
@@ -56,7 +60,7 @@ async function command(child: ChildProcess, action: string): Promise<any> {
             else resolve(message.result);
         };
         child.on('message', listener);
-        child.send({ id, action });
+        child.send({ id, action, ...args });
     });
 }
 
@@ -256,6 +260,7 @@ async function main() {
         'sourceKind',
         'sourceUrl',
         'status',
+        'studySessionId',
         'total',
     ]);
     const shopType = await graphql(
@@ -510,6 +515,238 @@ async function main() {
     console.log(
         'TC-DS4: SuperAdmin-only scoped stats/responses, exact Shop field boundary, ' +
             'pagination max/rejections, version/comment mappings, side counts and old-empty stratum proven',
+    );
+
+    const recoveryExperiment = 'description-study-session-recovery-qa';
+    await command(first.child, 'sessionFixture', { experimentKey: recoveryExperiment });
+    const sessionPrepare = (index: number, studySessionId?: string, auth?: string) =>
+        graphql(
+            index,
+            'shop-api',
+            `
+                mutation ($experimentKey: String!, $studySessionId: String) {
+                    prepareDescriptionComparison(
+                        experimentKey: $experimentKey
+                        studySessionId: $studySessionId
+                    ) {
+                        status
+                        ballotToken
+                        completed
+                        total
+                        studySessionId
+                    }
+                }
+            `,
+            { experimentKey: recoveryExperiment, studySessionId },
+            auth,
+        );
+    const sessionId = 'a9dd61bd-741f-4cb3-89b8-19478bc67830';
+    const legacy = await sessionPrepare(0);
+    assert(!legacy.errors);
+    assert.equal(legacy.data.prepareDescriptionComparison.studySessionId, null);
+    const legacyToken = legacy.token as string;
+    const oldBallot = legacy.data.prepareDescriptionComparison.ballotToken;
+    const markerVote = {
+        ballotToken: oldBallot,
+        choice: 'EQUAL',
+        leftComment: 'Проверка dot (ИИ)',
+        rightComment: '',
+    };
+    assert(!(await submit(0, legacyToken, markerVote)).errors);
+    const pendingLegacy = (await sessionPrepare(0, undefined, legacyToken)).data.prepareDescriptionComparison;
+    const beforeRecovery = (await command(first.child, 'snapshot')).ballots.filter(
+        (b: any) => b.experimentKey === recoveryExperiment,
+    );
+    const dryRun = await command(first.child, 'recoverDot', {
+        experimentKey: recoveryExperiment,
+        studySessionId: sessionId,
+        dryRun: true,
+    });
+    assert.equal(dryRun.submitted, 1);
+    assert.equal(dryRun.pending, 1);
+    assert.equal(dryRun.backfilled, 2);
+    assert.deepEqual(
+        (await command(first.child, 'snapshot')).ballots.filter(
+            (b: any) => b.experimentKey === recoveryExperiment,
+        ),
+        beforeRecovery,
+    );
+    const recovered = await command(first.child, 'recoverDot', {
+        experimentKey: recoveryExperiment,
+        studySessionId: sessionId,
+        dryRun: false,
+    });
+    assert.equal(recovered.backfilled, 2);
+    assert.equal(
+        (
+            await command(first.child, 'recoverDot', {
+                experimentKey: recoveryExperiment,
+                studySessionId: sessionId,
+                dryRun: false,
+            })
+        ).backfilled,
+        0,
+    );
+    const fresh = await sessionPrepare(1, sessionId.toUpperCase());
+    assert(!fresh.errors, JSON.stringify(fresh.errors));
+    assert.equal(fresh.data.prepareDescriptionComparison.studySessionId, sessionId);
+    assert.equal(fresh.data.prepareDescriptionComparison.completed, 1);
+    assert.equal(fresh.data.prepareDescriptionComparison.ballotToken, pendingLegacy.ballotToken);
+    let freshToken = fresh.token as string;
+    const multi = await Promise.all(
+        Array.from({ length: 12 }, (_, i) =>
+            sessionPrepare(i % 2, sessionId, i % 2 ? freshToken : legacyToken),
+        ),
+    );
+    assert(
+        multi.every(
+            r => !r.errors && r.data.prepareDescriptionComparison.ballotToken === pendingLegacy.ballotToken,
+        ),
+    );
+    await command(first.child, 'expireSession', { token: freshToken });
+    await command(second.child, 'expireSession', { token: freshToken });
+    const expiredBearerRecovery = await sessionPrepare(1, sessionId, freshToken);
+    assert(!expiredBearerRecovery.errors, JSON.stringify(expiredBearerRecovery.errors));
+    assert(
+        expiredBearerRecovery.token && expiredBearerRecovery.token !== freshToken,
+        'expired bearer must be replaced by a fresh anonymous Vendure session',
+    );
+    assert.equal(
+        expiredBearerRecovery.data.prepareDescriptionComparison.ballotToken,
+        pendingLegacy.ballotToken,
+    );
+    assert.equal(expiredBearerRecovery.data.prepareDescriptionComparison.completed, 1);
+    assert.equal(expiredBearerRecovery.data.prepareDescriptionComparison.studySessionId, sessionId);
+    freshToken = expiredBearerRecovery.token;
+    const badVote = await submit(0, freshToken, { ballotToken: pendingLegacy.ballotToken, choice: 'SKIP' });
+    assert(badVote.errors, 'fresh cookie without UUID must not access restored owner ballot');
+    const wrongId = 'fda0c530-c936-4e21-9d1d-dd41e77188a0';
+    assert(
+        (
+            await submit(0, freshToken, {
+                ballotToken: pendingLegacy.ballotToken,
+                choice: 'SKIP',
+                studySessionId: wrongId,
+            })
+        ).errors,
+    );
+    assert((await sessionPrepare(0, 'invalid', freshToken)).errors);
+    const afterRecovery = (await command(first.child, 'snapshot')).ballots.filter(
+        (b: any) => b.experimentKey === recoveryExperiment,
+    );
+    assert.deepEqual(
+        afterRecovery.map(({ studySessionId: _id, ...rest }: any) => rest),
+        beforeRecovery.map(({ studySessionId: _id, ...rest }: any) => rest),
+    );
+    const nextVote = {
+        ballotToken: pendingLegacy.ballotToken,
+        studySessionId: sessionId,
+        choice: 'RIGHT',
+        leftComment: '',
+        rightComment: 'ПРОВЕРКА DOT(ИИ)',
+    };
+    const votes = await Promise.all(
+        Array.from({ length: 8 }, (_, i) => submit(i % 2, i % 2 ? freshToken : legacyToken, nextVote)),
+    );
+    assert(votes.every(r => !r.errors));
+    assert.equal(votes.filter(r => !r.data.submitDescriptionComparison.duplicate).length, 1);
+    assert.equal(
+        (await sessionPrepare(0, wrongId, legacyToken)).data.prepareDescriptionComparison.studySessionId,
+        sessionId,
+        'mapped cookie returns canonical existing ID',
+    );
+    const adoptedExperiment = 'description-study-adoption-qa';
+    await command(first.child, 'sessionFixture', { experimentKey: adoptedExperiment });
+    const adoptionMutation = `mutation($experimentKey:String!, $studySessionId:String) {
+        prepareDescriptionComparison(experimentKey:$experimentKey, studySessionId:$studySessionId) {
+            ballotToken studySessionId completed
+        }
+    }`;
+    const adoptionLegacy = await graphql(0, 'shop-api', adoptionMutation, {
+        experimentKey: adoptedExperiment,
+    });
+    const adopted = await graphql(
+        1,
+        'shop-api',
+        adoptionMutation,
+        { experimentKey: adoptedExperiment, studySessionId: wrongId },
+        adoptionLegacy.token,
+    );
+    assert(!adopted.errors);
+    assert.equal(
+        adopted.data.prepareDescriptionComparison.ballotToken,
+        adoptionLegacy.data.prepareDescriptionComparison.ballotToken,
+    );
+    assert.equal(adopted.data.prepareDescriptionComparison.studySessionId, wrongId);
+    const adoptedSnapshot = (await command(first.child, 'snapshot')).ballots.filter(
+        (b: any) => b.experimentKey === adoptedExperiment,
+    );
+    assert.equal(adoptedSnapshot.length, 1);
+    assert.equal(adoptedSnapshot[0].studySessionId, wrongId);
+    await assert.rejects(
+        command(first.child, 'recoverDot', {
+            experimentKey: recoveryExperiment,
+            studySessionId: wrongId,
+            dryRun: false,
+        }),
+        /RECOVERY_CONFLICT/,
+    );
+    const unmarked = (await sessionPrepare(0, sessionId, legacyToken)).data.prepareDescriptionComparison;
+    assert(
+        !(
+            await submit(0, legacyToken, {
+                ballotToken: unmarked.ballotToken,
+                studySessionId: sessionId,
+                choice: 'SKIP',
+            })
+        ).errors,
+    );
+    await assert.rejects(
+        command(first.child, 'recoverDot', { experimentKey: recoveryExperiment, studySessionId: sessionId }),
+        /RECOVERY_UNMARKED_VOTES/,
+    );
+    const otherOwner = await sessionPrepare(0);
+    assert(
+        !(
+            await submit(0, otherOwner.token, {
+                ballotToken: otherOwner.data.prepareDescriptionComparison.ballotToken,
+                choice: 'SKIP',
+                rightComment: 'Проверка dot (ИИ)',
+            })
+        ).errors,
+    );
+    await assert.rejects(
+        command(first.child, 'recoverDot', { experimentKey: recoveryExperiment, studySessionId: sessionId }),
+        /RECOVERY_AMBIGUOUS/,
+    );
+    assert.equal(await command(first.child, 'participantMigrationDown'), 'refused-nonempty');
+    const adminRecovered = await graphql(
+        0,
+        'admin-api',
+        responsesQuery,
+        { experimentKey: recoveryExperiment, skip: 0, take: 200 },
+        adminToken,
+    );
+    assert(!adminRecovered.errors);
+    assert(
+        adminRecovered.data.descriptionExperimentResponses.items
+            .filter((r: any) => r.participantKey === recovered.participantKey)
+            .every((r: any) => r.studySessionId === sessionId),
+    );
+    assert(
+        adminRecovered.data.descriptionExperimentResponses.items
+            .filter((r: any) => r.participantKey !== recovered.participantKey)
+            .every((r: any) => r.studySessionId === null),
+    );
+    const qaUnaffected = (await command(first.child, 'snapshot')).ballots.filter(
+        (b: any) => b.experimentKey === QA_EXPERIMENT,
+    );
+    assert(
+        qaUnaffected.every((b: any) => b.studySessionId === null),
+        'recovery must leave other scopes untouched',
+    );
+    console.log(
+        'TC-DS6: UUID recovery, scoped adoption/backfill, dry-run, unchanged vote payloads, concurrent browsers/votes and fail-closed recovery proven',
     );
 
     assert.equal(await command(first.child, 'migrationDown'), 'refused-nonempty');

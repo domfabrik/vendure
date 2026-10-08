@@ -2,7 +2,11 @@ import { Args, Mutation, Query, Resolver } from '@nestjs/graphql';
 import { Allow, Ctx, Permission, PluginCommonModule, RequestContext, VendurePlugin } from '@vendure/core';
 import gql from 'graphql-tag';
 
-import { DescriptionStudyBallot, DescriptionStudyCandidate } from './description-study.entity';
+import {
+    DescriptionStudyBallot,
+    DescriptionStudyCandidate,
+    DescriptionStudyParticipant,
+} from './description-study.entity';
 import { DescriptionComparisonVoteInput, DescriptionStudyService } from './description-study.service';
 
 @Resolver()
@@ -11,8 +15,12 @@ export class DescriptionStudyShopResolver {
 
     @Mutation()
     @Allow(Permission.Owner)
-    prepareDescriptionComparison(@Ctx() ctx: RequestContext, @Args('experimentKey') experimentKey: string) {
-        return this.study.prepare(ctx, experimentKey);
+    prepareDescriptionComparison(
+        @Ctx() ctx: RequestContext,
+        @Args('experimentKey') experimentKey: string,
+        @Args('studySessionId') studySessionId?: string,
+    ) {
+        return this.study.prepare(ctx, experimentKey, studySessionId);
     }
 
     @Mutation()
@@ -90,6 +98,7 @@ const shopSchema = gql`
     type DescriptionComparison {
         status: DescriptionComparisonStatus!
         ballotToken: String
+        studySessionId: String
         productId: String
         slug: String
         productName: String
@@ -105,6 +114,7 @@ const shopSchema = gql`
 
     input DescriptionComparisonVoteInput {
         ballotToken: String!
+        studySessionId: String
         choice: DescriptionComparisonChoice!
         leftComment: String! = ""
         rightComment: String! = ""
@@ -117,7 +127,7 @@ const shopSchema = gql`
     }
 
     extend type Mutation {
-        prepareDescriptionComparison(experimentKey: String!): DescriptionComparison!
+        prepareDescriptionComparison(experimentKey: String!, studySessionId: String): DescriptionComparison!
         submitDescriptionComparison(input: DescriptionComparisonVoteInput!): DescriptionComparisonVoteResult!
     }
 `;
@@ -161,6 +171,7 @@ const adminSchema = gql`
     type DescriptionExperimentResponse {
         responseId: ID!
         participantKey: String!
+        studySessionId: String
         productId: String!
         slug: String!
         productName: String!
@@ -197,7 +208,7 @@ const adminSchema = gql`
 
 @VendurePlugin({
     imports: [PluginCommonModule],
-    entities: [DescriptionStudyCandidate, DescriptionStudyBallot],
+    entities: [DescriptionStudyCandidate, DescriptionStudyBallot, DescriptionStudyParticipant],
     providers: [DescriptionStudyService],
     shopApiExtensions: { schema: shopSchema, resolvers: [DescriptionStudyShopResolver] },
     adminApiExtensions: { schema: adminSchema, resolvers: [DescriptionStudyAdminResolver] },

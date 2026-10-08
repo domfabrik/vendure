@@ -9,7 +9,11 @@ import {
     sha256Utf8,
     validateDescriptionStudyBundle,
 } from './description-study.bundle';
-import { descriptionStudyEnabled, participantKey } from './description-study.service';
+import {
+    descriptionStudyEnabled,
+    normalizeStudySessionId,
+    participantKey,
+} from './description-study.service';
 
 const experimentKey = 'description-study-qa-20261005-v1';
 const expectations: BundleExpectations = {
@@ -216,3 +220,11 @@ for (const mutate of [
 console.log(
     'Description study unit checks passed: exact gate, hashes, frozen cohort and incomplete fixture rules',
 );
+
+const uuid = 'a9dd61bd-741f-4cb3-89b8-19478bc67830';
+assert.equal(normalizeStudySessionId(uuid.toUpperCase()), uuid);
+assert.equal(normalizeStudySessionId(undefined), undefined);
+assert.equal(normalizeStudySessionId(null), undefined);
+for (const invalid of ['', ' ' + uuid, uuid + ' ', uuid.replace('-4cb3-', '-1cb3-'), 123, {}, 'not-a-uuid']) {
+    assert.throws(() => normalizeStudySessionId(invalid), /DESCRIPTION_STUDY_INVALID_SESSION_ID/);
+}
