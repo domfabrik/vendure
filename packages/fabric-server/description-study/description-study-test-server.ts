@@ -24,8 +24,13 @@ import {
     V2_QA_EXPECTATIONS,
     V2_QA_EXPERIMENT,
 } from './description-study-test-fixture';
-import { canonicalJson, sha256Utf8 } from './description-study.bundle';
-import { DescriptionStudyBallot, DescriptionStudyCandidate } from './description-study.entity';
+import { canonicalJson, loadDescriptionStudyBundle, sha256Utf8 } from './description-study.bundle';
+import {
+    DescriptionStudyBallot,
+    DescriptionStudyCandidate,
+    DescriptionStudyParticipant,
+} from './description-study.entity';
+import { loadDescriptionStudyExperiments, loadSolCrewAiBundle } from './description-study.experiments';
 import { DescriptionStudyPlugin } from './description-study.plugin';
 import { DescriptionStudyService } from './description-study.service';
 
@@ -108,6 +113,46 @@ async function main() {
         });
         const ctx = await contexts.create({ apiType: 'admin' });
         const service = app.get(DescriptionStudyService);
+        // The previous deployed cohort exists before any new-round bootstrap.
+        const legacyBundle = await loadDescriptionStudyBundle();
+        await service.syncBundle(ctx, legacyBundle);
+        const legacyScope = { channelId: String(ctx.channelId), experimentKey: legacyBundle.experimentKey };
+        const historicalSessionId = '99999999-9999-4999-8999-999999999999';
+        const historicalOwner = 'f'.repeat(64);
+        await connection.rawConnection.getRepository(DescriptionStudyParticipant).save(
+            new DescriptionStudyParticipant({
+                ...legacyScope,
+                studySessionId: historicalSessionId,
+                participantKey: historicalOwner,
+            }),
+        );
+        const legacyCandidates = await connection.rawConnection
+            .getRepository(DescriptionStudyCandidate)
+            .find({ where: legacyScope });
+        // Each future product has a historical vote, so new-round progress cannot inherit it.
+        for (const item of (await loadSolCrewAiBundle()).cases) {
+            const historicalCandidate = legacyCandidates.find(
+                candidate => candidate.sourceProductId === item.sourceProductId,
+            );
+            if (!historicalCandidate)
+                throw new Error(`Missing legacy fixture product: ${item.sourceProductId}`);
+            await connection.rawConnection.getRepository(DescriptionStudyBallot).save(
+                new DescriptionStudyBallot({
+                    ...legacyScope,
+                    candidateId: Number(historicalCandidate.id),
+                    ballotToken: randomUUID(),
+                    participantKey: historicalOwner,
+                    studySessionId: historicalSessionId,
+                    leftVersion: 'OLD',
+                    choice: 'LEFT',
+                    selectedVersion: 'OLD',
+                    leftComment: 'historical left payload',
+                    rightComment: 'historical right payload',
+                    assignedAt: new Date(),
+                    votedAt: new Date(),
+                }),
+            );
+        }
         const first = await service.syncBundle(ctx, QA_BUNDLE, QA_EXPECTATIONS);
         const second = await service.syncBundle(ctx, structuredClone(QA_BUNDLE), QA_EXPECTATIONS);
         let hashTamper = '';
@@ -238,9 +283,12 @@ async function main() {
                 result = {
                     candidates: await connection.rawConnection
                         .getRepository(DescriptionStudyCandidate)
-                        .find({ order: { ordinal: 'ASC' } }),
+                        .find({ order: { id: 'ASC' } }),
                     ballots: await connection.rawConnection
                         .getRepository(DescriptionStudyBallot)
+                        .find({ order: { id: 'ASC' } }),
+                    participants: await connection.rawConnection
+                        .getRepository(DescriptionStudyParticipant)
                         .find({ order: { id: 'ASC' } }),
                     sessions: (await connection.rawConnection.getRepository(Session).find()).map(session => ({
                         id: String(session.id),
@@ -248,6 +296,17 @@ async function main() {
                     })),
                     sentinel: await connection.rawConnection.query(`SELECT * FROM ${qualifiedSentinel}`),
                 };
+            } else if (message.action === 'syncExperiments') {
+                const ctx = await contexts.create({ apiType: 'admin' });
+                const service = app.get(DescriptionStudyService);
+                const results = [];
+                for (const { bundle, expectations } of await loadDescriptionStudyExperiments()) {
+                    results.push({
+                        experimentKey: bundle.experimentKey,
+                        ...(await service.syncBundle(ctx, bundle, expectations)),
+                    });
+                }
+                result = results;
             } else if (message.action === 'expireSession') {
                 await connection.rawConnection
                     .getRepository(Session)

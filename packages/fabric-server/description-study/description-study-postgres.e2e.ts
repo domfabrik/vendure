@@ -12,6 +12,12 @@ import {
     V2_QA_EXPECTATIONS,
     V2_QA_EXPERIMENT,
 } from './description-study-test-fixture';
+import {
+    DESCRIPTION_STUDY_EXPERIMENT,
+    SOL_CREWAI_EXPERIMENT,
+    SOL_CREWAI_QA_EXPERIMENT,
+} from './description-study.bundle';
+import { loadSolCrewAiBundle } from './description-study.experiments';
 
 const children: ChildProcess[] = [];
 const schema = `description_study_test_${Date.now()}`;
@@ -747,6 +753,143 @@ async function main() {
     );
     console.log(
         'TC-DS6: UUID recovery, scoped adoption/backfill, dry-run, unchanged vote payloads, concurrent browsers/votes and fail-closed recovery proven',
+    );
+
+    // fabric-l5p.43: real packaged imports must preserve pre-existing votes, UUID mappings and sessions.
+    const beforeAdditive = await command(first.child, 'snapshot');
+    const imported = await command(first.child, 'syncExperiments');
+    assert.deepEqual(imported, [
+        { experimentKey: SOL_CREWAI_EXPERIMENT, inserted: 104, existing: 0 },
+        { experimentKey: SOL_CREWAI_QA_EXPERIMENT, inserted: 104, existing: 0 },
+    ]);
+    assert.deepEqual(
+        await command(first.child, 'syncExperiments'),
+        imported.map((item: any) => ({
+            experimentKey: item.experimentKey,
+            inserted: 0,
+            existing: item.inserted,
+        })),
+    );
+    const afterAdditive = await command(first.child, 'snapshot');
+    assert.equal(
+        beforeAdditive.candidates.filter((item: any) => item.experimentKey === DESCRIPTION_STUDY_EXPERIMENT)
+            .length,
+        461,
+    );
+    assert.deepEqual(afterAdditive.ballots, beforeAdditive.ballots);
+    assert.deepEqual(afterAdditive.participants, beforeAdditive.participants);
+    assert.deepEqual(afterAdditive.sessions, beforeAdditive.sessions);
+    const oldIds = new Set(beforeAdditive.candidates.map((item: any) => item.id));
+    assert.deepEqual(
+        afterAdditive.candidates.filter((item: any) => oldIds.has(item.id)),
+        beforeAdditive.candidates,
+    );
+    const packaged = await loadSolCrewAiBundle();
+    const mainCandidates = afterAdditive.candidates.filter(
+        (item: any) => item.experimentKey === SOL_CREWAI_EXPERIMENT,
+    );
+    assert.equal(mainCandidates.length, 104);
+    assert(!mainCandidates.some((item: any) => item.sourceProductId === '1403'));
+    for (const candidate of mainCandidates) {
+        const expected = packaged.cases.find(item => item.sourceProductId === candidate.sourceProductId);
+        assert(expected);
+        for (const field of [
+            'oldText',
+            'newText',
+            'oldHash',
+            'newHash',
+            'oldVersionId',
+            'newVersionId',
+            'sourceUrl',
+            'imageUrl',
+        ] as const)
+            assert.equal(candidate[field], expected[field]);
+        assert.deepEqual(candidate.parsedCharacteristics, expected.parsedCharacteristics);
+        assert.deepEqual(candidate.generationMetadata, expected.generationMetadata);
+    }
+    const roundPrepare = `mutation Prepare($experimentKey: String!, $studySessionId: String!) {
+        prepareDescriptionComparison(experimentKey: $experimentKey, studySessionId: $studySessionId) {
+            status ballotToken productId leftText rightText completed total studySessionId
+        }
+    }`;
+    const roundSession = '99999999-9999-4999-8999-999999999999';
+    const newRound = await graphql(0, 'shop-api', roundPrepare, {
+        experimentKey: SOL_CREWAI_EXPERIMENT,
+        studySessionId: roundSession,
+    });
+    assert(!newRound.errors);
+    const newPair = newRound.data.prepareDescriptionComparison;
+    assert.equal(newPair.completed, 0);
+    assert.equal(newPair.total, 104);
+    assert.equal(newPair.studySessionId, roundSession);
+    const alreadyVotedCandidate = beforeAdditive.candidates.find(
+        (item: any) =>
+            item.experimentKey === DESCRIPTION_STUDY_EXPERIMENT && item.sourceProductId === newPair.productId,
+    );
+    assert(
+        beforeAdditive.ballots.some(
+            (item: any) =>
+                item.candidateId === alreadyVotedCandidate.id &&
+                item.studySessionId === roundSession &&
+                item.votedAt,
+        ),
+    );
+    const newToken = newRound.token as string;
+    const newVote = {
+        ballotToken: newPair.ballotToken,
+        studySessionId: roundSession,
+        choice: 'EQUAL',
+        leftComment: 'local104 left',
+        rightComment: 'local104 right',
+    };
+    const roundVote = await submit(0, newToken, newVote);
+    assert(!roundVote.errors);
+    assert.equal(roundVote.data.submitDescriptionComparison.completed, 1);
+    const repeated = await submit(1, newToken, newVote);
+    assert.equal(repeated.data.submitDescriptionComparison.duplicate, true);
+    const recoveredRound = await graphql(1, 'shop-api', roundPrepare, {
+        experimentKey: SOL_CREWAI_EXPERIMENT,
+        studySessionId: roundSession,
+    });
+    assert.equal(recoveredRound.data.prepareDescriptionComparison.completed, 1);
+    const qaRound = await graphql(0, 'shop-api', roundPrepare, {
+        experimentKey: SOL_CREWAI_QA_EXPERIMENT,
+        studySessionId: roundSession,
+    });
+    assert.equal(qaRound.data.prepareDescriptionComparison.completed, 0);
+    assert.equal(qaRound.data.prepareDescriptionComparison.total, 104);
+    const qaVote = await submit(0, qaRound.token as string, {
+        ...newVote,
+        ballotToken: qaRound.data.prepareDescriptionComparison.ballotToken,
+        choice: 'SKIP',
+    });
+    assert.equal(qaVote.data.submitDescriptionComparison.completed, 1);
+    const roundAdmin = await adminLogin(0);
+    for (const experimentKey of [SOL_CREWAI_EXPERIMENT, SOL_CREWAI_QA_EXPERIMENT]) {
+        const roundStats = await graphql(0, 'admin-api', statsQuery, { experimentKey }, roundAdmin);
+        assert.equal(roundStats.data.descriptionExperimentStats.submitted, 1);
+        assert.equal(roundStats.data.descriptionExperimentStats.participants, 1);
+        assert.equal(roundStats.data.descriptionExperimentStats.totalCandidates, 104);
+    }
+    const legacyStats = await graphql(
+        0,
+        'admin-api',
+        statsQuery,
+        { experimentKey: DESCRIPTION_STUDY_EXPERIMENT },
+        roundAdmin,
+    );
+    assert.equal(legacyStats.data.descriptionExperimentStats.submitted, 104);
+    const oldBallotIds = new Set(beforeAdditive.ballots.map((item: any) => item.id));
+    const afterVotes = await command(first.child, 'snapshot');
+    assert.deepEqual(
+        afterVotes.ballots.filter((item: any) => oldBallotIds.has(item.id)),
+        beforeAdditive.ballots,
+    );
+    const beforeFinalReimport = await command(first.child, 'snapshot');
+    await command(first.child, 'syncExperiments');
+    assert.deepEqual(await command(first.child, 'snapshot'), beforeFinalReimport);
+    console.log(
+        'TC-DS7: exact104 additive import/reimport, preserved legacy payloads/sessions, CRLF readback, new0/104, UUID recovery, retry and QA-scoped stats proven',
     );
 
     assert.equal(await command(first.child, 'migrationDown'), 'refused-nonempty');

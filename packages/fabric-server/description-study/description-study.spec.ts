@@ -7,8 +7,13 @@ import {
     canonicalJson,
     DescriptionStudyBundle,
     sha256Utf8,
+    SOL_CREWAI_EXPERIMENT,
     validateDescriptionStudyBundle,
 } from './description-study.bundle';
+import {
+    loadDescriptionStudyExperiments,
+    solCrewAiBundleExpectations,
+} from './description-study.experiments';
 import {
     descriptionStudyEnabled,
     normalizeStudySessionId,
@@ -67,6 +72,18 @@ const bundle: DescriptionStudyBundle = {
 };
 
 assert.equal(validateDescriptionStudyBundle(bundle, expectations), bundle);
+const legacyCrlf = structuredClone(bundle);
+legacyCrlf.cases[0].newText += '\r\n';
+legacyCrlf.cases[0].newHash = sha256Utf8(legacyCrlf.cases[0].newText);
+legacyCrlf.cases[0].newVersionId = version(
+    'new',
+    legacyCrlf.cases[0].sourceProductId,
+    legacyCrlf.cases[0].newHash,
+);
+assert.throws(
+    () => validateDescriptionStudyBundle(legacyCrlf, { ...expectations, newTextLineEndings: 'LF_OR_CRLF' }),
+    /case.lineEndings/,
+);
 const honestUnknowns = structuredClone(bundle);
 honestUnknowns.cases[0].vendorName = '';
 honestUnknowns.cases[1].productType = '';
@@ -228,3 +245,57 @@ assert.equal(normalizeStudySessionId(null), undefined);
 for (const invalid of ['', ' ' + uuid, uuid + ' ', uuid.replace('-4cb3-', '-1cb3-'), 123, {}, 'not-a-uuid']) {
     assert.throws(() => normalizeStudySessionId(invalid), /DESCRIPTION_STUDY_INVALID_SESSION_ID/);
 }
+
+async function packagedChecks() {
+    const experiments = await loadDescriptionStudyExperiments();
+    assert.equal(experiments.length, 2);
+    assert.equal(new Set(experiments.map(item => item.bundle.experimentKey)).size, 2);
+    const currentExperiment = experiments.find(item => item.bundle.experimentKey === SOL_CREWAI_EXPERIMENT);
+    assert(currentExperiment);
+    const current = currentExperiment.bundle;
+    assert.equal(current.cases.length, 104);
+    assert(!current.cases.some(item => item.sourceProductId === '1403'));
+    assert(current.cases.some(item => item.newText.includes('\r\n')));
+    for (const mutate of [
+        (copy: DescriptionStudyBundle) => {
+            copy.cases[0].sourceProductId = '1403';
+        },
+        (copy: DescriptionStudyBundle) => {
+            copy.cases[0].productName += 'changed';
+        },
+        (copy: DescriptionStudyBundle) => {
+            copy.cases[0].generationMetadata = {};
+        },
+        (copy: DescriptionStudyBundle) => {
+            copy.cases[0].newText += 'changed';
+            copy.cases[0].newHash = sha256Utf8(copy.cases[0].newText);
+            copy.cases[0].newVersionId = `${current.experimentKey}:new:${copy.cases[0].sourceProductId}:${copy.cases[0].newHash}`;
+        },
+    ]) {
+        const changed = structuredClone(current);
+        mutate(changed);
+        assert.throws(
+            () => validateDescriptionStudyBundle(changed, solCrewAiBundleExpectations),
+            /casesSha256/,
+        );
+    }
+    for (const side of ['oldText', 'newText'] as const) {
+        const changed = structuredClone(current);
+        changed.cases[0][side] += '\rbare';
+        assert.throws(
+            () =>
+                validateDescriptionStudyBundle(changed, {
+                    ...solCrewAiBundleExpectations,
+                    casesSha256: undefined,
+                }),
+            /case.lineEndings/,
+        );
+    }
+    console.log(
+        'Packaged104 checks passed: exact frozen IDs/text/provenance digest; changed first import refused; legacy LF and scoped CRLF profiles preserved',
+    );
+}
+void packagedChecks().catch(error => {
+    console.error(error);
+    process.exitCode = 1;
+});

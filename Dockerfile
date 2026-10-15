@@ -39,6 +39,7 @@ RUN mkdir -p .docker-runtime/packages/fabric-server/description-study/data
 RUN cp packages/core/mock-data/data-sources/products.csv .docker-runtime/packages/core/mock-data/data-sources/products.csv
 RUN cp -R packages/core/mock-data/assets/. .docker-runtime/packages/core/mock-data/assets/
 RUN cp packages/fabric-server/description-study/data/candidates.v1.json .docker-runtime/packages/fabric-server/description-study/data/candidates.v1.json
+RUN cp packages/fabric-server/description-study/data/candidates.sol-crewai-104.v1.json .docker-runtime/packages/fabric-server/description-study/data/candidates.sol-crewai-104.v1.json
 
 FROM node:${NODE_VER}-bookworm-slim AS runtime
 

@@ -3,6 +3,8 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 
 export const DESCRIPTION_STUDY_EXPERIMENT = 'description-third-20261005-v1';
+export const SOL_CREWAI_EXPERIMENT = 'description-sol-vs-crewai-20261014-v1';
+export const SOL_CREWAI_QA_EXPERIMENT = 'description-sol-vs-crewai-20261014-v1-qa';
 export const DESCRIPTION_STUDY_SNAPSHOT_SHA =
     'a655ac3ba953723ec16f9881abd1eb15bda9dd20347f9952bf077afb34faa38c';
 
@@ -84,6 +86,9 @@ export interface BundleExpectations {
     totalPublished: number;
     selectedTotal: number;
     oldEmptyTotal: number;
+    /** Trusted experiment profile, never read from the incoming bundle. */
+    newTextLineEndings?: 'LF_OR_CRLF';
+    casesSha256?: string;
 }
 
 export const productionBundleExpectations: BundleExpectations = {
@@ -219,6 +224,8 @@ export function validateDescriptionStudyBundle(
     if (Number.isNaN(Date.parse(bundle.sourceCapturedAt)))
         throw new Error('DESCRIPTION_STUDY_INVALID_BUNDLE:sourceCapturedAt');
     if (!Array.isArray(bundle.cases)) throw new Error('DESCRIPTION_STUDY_INVALID_BUNDLE:cases');
+    if (expected.casesSha256 && sha256Utf8(canonicalJson(bundle.cases)) !== expected.casesSha256)
+        throw new Error('DESCRIPTION_STUDY_INVALID_BUNDLE:casesSha256');
 
     if (bundle.schemaVersion === 1) {
         if (typeof bundle.generationComplete !== 'boolean')
@@ -312,7 +319,13 @@ function validateCases(bundle: DescriptionStudyBundle, expected: BundleExpectati
         slugs.add(item.slug);
         versionIds.add(item.oldVersionId);
         versionIds.add(item.newVersionId);
-        if (/\r/.test(item.oldText + item.newText))
+        const allowNewCrlf =
+            expected.newTextLineEndings === 'LF_OR_CRLF' &&
+            [SOL_CREWAI_EXPERIMENT, SOL_CREWAI_QA_EXPERIMENT].includes(bundle.experimentKey);
+        if (
+            /\r/.test(item.oldText) ||
+            /\r/.test(allowNewCrlf ? item.newText.replace(/\r\n/g, '') : item.newText)
+        )
             throw new Error('DESCRIPTION_STUDY_INVALID_BUNDLE:case.lineEndings');
         if (item.newText.length === 0 || item.oldEmpty !== (item.oldText.length === 0))
             throw new Error('DESCRIPTION_STUDY_INVALID_BUNDLE:case.empty');
